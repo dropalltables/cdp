@@ -1,4 +1,6 @@
 # cdp
+> [!CAUTION]
+> This project is in alpha, if things go wrong, please do not blame me!
 
 A CLI tool for deploying applications to [Coolify](https://coolify.io) with a single command.
 
