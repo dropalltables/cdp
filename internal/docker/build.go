@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dropalltables/cdp/internal/config"
 	"github.com/dropalltables/cdp/internal/detect"
 )
 
@@ -28,7 +29,6 @@ func Build(opts *BuildOptions) error {
 	tempDockerfile := false
 
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
-		// Generate Dockerfile
 		content := GenerateDockerfile(opts.Framework)
 		tempDockerfilePath := filepath.Join(opts.Dir, "Dockerfile.cdp")
 		if err := os.WriteFile(tempDockerfilePath, []byte(content), 0644); err != nil {
@@ -36,14 +36,17 @@ func Build(opts *BuildOptions) error {
 		}
 		dockerfilePath = tempDockerfilePath
 		tempDockerfile = true
-		defer os.Remove(tempDockerfilePath)
 	}
 
-	// Build the image for target platform
+	if tempDockerfile {
+		defer os.Remove(dockerfilePath)
+	}
+
 	platform := opts.Platform
 	if platform == "" {
-		platform = "linux/amd64"
+		platform = config.DefaultPlatform
 	}
+
 	imageTag := fmt.Sprintf("%s:%s", opts.ImageName, opts.Tag)
 	args := []string{"build", "--platform", platform, "-t", imageTag, "-f", dockerfilePath, opts.Dir}
 
@@ -55,12 +58,6 @@ func Build(opts *BuildOptions) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("docker build failed: %w", err)
 	}
-
-	// Clean up temp dockerfile
-	if tempDockerfile {
-		os.Remove(dockerfilePath)
-	}
-
 	return nil
 }
 

@@ -33,9 +33,9 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not linked to a project. Run '%s' or '%s link' first", execName(), execName())
 	}
 
-	appUUID := projectCfg.AppUUIDs["preview"]
+	appUUID := projectCfg.AppUUIDs[config.EnvPreview]
 	if prodFlag {
-		appUUID = projectCfg.AppUUIDs["production"]
+		appUUID = projectCfg.AppUUIDs[config.EnvProduction]
 	}
 	if appUUID == "" {
 		return fmt.Errorf("no application found for this environment. Deploy first with '%s'", execName())

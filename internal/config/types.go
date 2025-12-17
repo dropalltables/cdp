@@ -1,5 +1,24 @@
 package config
 
+// Environment names
+const (
+	EnvPreview    = "preview"
+	EnvProduction = "production"
+)
+
+// Deployment methods
+const (
+	DeployMethodGit    = "git"
+	DeployMethodDocker = "docker"
+)
+
+// Default values
+const (
+	DefaultPort     = "3000"
+	DefaultPlatform = "linux/amd64"
+	DefaultBranch   = "main"
+)
+
 // GlobalConfig stores credentials and settings for cdp
 type GlobalConfig struct {
 	CoolifyURL     string          `json:"coolify_url"`

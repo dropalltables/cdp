@@ -33,32 +33,26 @@ func init() {
 }
 
 func runDeploy(isProd bool) error {
-	// Show welcome screen before anything else
 	if err := ui.WelcomeScreen(); err != nil {
 		return err
 	}
 
-	// Check login
 	if err := checkLogin(); err != nil {
 		return err
 	}
 
-	// Load global config
 	globalCfg, err := config.LoadGlobal()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Load or create project config
 	projectCfg, err := config.LoadProject()
 	if err != nil {
 		return fmt.Errorf("failed to load project config: %w", err)
 	}
 
-	// Create API client
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
-	// First-time setup if no project config exists
 	if projectCfg == nil {
 		projectCfg, err = firstTimeSetup(client, globalCfg, isProd)
 		if err != nil {
@@ -66,16 +60,14 @@ func runDeploy(isProd bool) error {
 		}
 	}
 
-	// Deploy based on method
-	env := "preview"
+	env := config.EnvPreview
 	if isProd {
-		env = "production"
+		env = config.EnvProduction
 	}
 
 	fmt.Println()
 	ui.Info(fmt.Sprintf("Ready to deploy to %s environment", env))
 
-	// Prompt to proceed or cancel
 	if err := ui.ProceedOrCancel("Press Enter to proceed, Ctrl+C to cancel"); err != nil {
 		return err
 	}
@@ -83,7 +75,7 @@ func runDeploy(isProd bool) error {
 	fmt.Println()
 	ui.Info(fmt.Sprintf("Deploying to %s environment...", env))
 
-	if projectCfg.DeployMethod == "docker" {
+	if projectCfg.DeployMethod == config.DeployMethodDocker {
 		return deployDocker(client, globalCfg, projectCfg, env)
 	}
 	return deployGit(client, globalCfg, projectCfg, env)
@@ -319,10 +311,10 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 
 	port := framework.Port
 	if port == "" {
-		port = "3000"
+		port = config.DefaultPort
 	}
-	platform := "linux/amd64"
-	branch := "main"
+	platform := config.DefaultPlatform
+	branch := config.DefaultBranch
 	domain := "" // empty means Coolify auto-generates
 
 	if configureAdvanced {
@@ -334,7 +326,7 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 		}
 
 		// Platform (for Docker builds)
-		if deployMethod == "docker" {
+		if deployMethod == config.DeployMethodDocker {
 			platformOptions := []string{"linux/amd64 (Intel/AMD)", "linux/arm64 (Apple Silicon/ARM)"}
 			platformChoice, err := ui.Select("Target platform:", platformOptions)
 			if err != nil {
@@ -346,7 +338,7 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 		}
 
 		// Branch (for Git deploys)
-		if deployMethod == "git" {
+		if deployMethod == config.DeployMethodGit {
 			branch, err = ui.InputWithDefault("Git branch:", branch)
 			if err != nil {
 				return nil, err
@@ -389,7 +381,7 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 	}
 
 	// Set up based on deploy method
-	if deployMethod == "docker" {
+	if deployMethod == config.DeployMethodDocker {
 		if globalCfg.DockerRegistry != nil {
 			projectCfg.DockerImage = docker.GetImageFullName(
 				globalCfg.DockerRegistry.URL,
@@ -442,11 +434,11 @@ func chooseDeployMethod(globalCfg *config.GlobalConfig) (string, error) {
 
 	if hasGitHub {
 		options = append(options, "Git-based (auto-manage GitHub repo)")
-		optionMap["Git-based (auto-manage GitHub repo)"] = "git"
+		optionMap["Git-based (auto-manage GitHub repo)"] = config.DeployMethodGit
 	}
 	if hasDocker {
 		options = append(options, "Docker-based (build & push image)")
-		optionMap["Docker-based (build & push image)"] = "docker"
+		optionMap["Docker-based (build & push image)"] = config.DeployMethodDocker
 	}
 
 	if len(options) == 0 {
@@ -522,13 +514,13 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 		spinner.Start()
 
 		envUUID := projectCfg.PreviewEnvUUID
-		if env == "production" {
+		if env == config.EnvProduction {
 			envUUID = projectCfg.ProdEnvUUID
 		}
 
 		port := projectCfg.Port
 		if port == "" {
-			port = "3000"
+			port = config.DefaultPort
 		}
 
 		resp, err := client.CreateDockerImageApp(&api.CreateDockerImageAppRequest{
@@ -681,12 +673,11 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 	if err := git.AutoCommit("."); err != nil {
 		// Ignore if nothing to commit
 	}
-	// Use configured branch or current branch
 	branch := projectCfg.Branch
 	if branch == "" {
 		branch, _ = git.GetCurrentBranch(".")
 		if branch == "" {
-			branch = "main"
+			branch = config.DefaultBranch
 		}
 	}
 	if err := git.Push(".", "origin", branch); err != nil {
@@ -732,22 +723,22 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 		spinner.Start()
 
 		envUUID := projectCfg.PreviewEnvUUID
-		if env == "production" {
+		if env == config.EnvProduction {
 			envUUID = projectCfg.ProdEnvUUID
 		}
 
 		buildPack := projectCfg.BuildPack
 		if buildPack == "" {
-			buildPack = "nixpacks"
+			buildPack = detect.BuildPackNixpacks
 		}
 
 		port := projectCfg.Port
 		if port == "" {
-			port = "3000"
+			port = config.DefaultPort
 		}
 
 		// Use Coolify's static site feature for static builds
-		isStatic := buildPack == "static"
+		isStatic := buildPack == detect.BuildPackStatic
 
 		// Enable health check for static sites
 		healthCheckEnabled := isStatic

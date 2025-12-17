@@ -72,9 +72,14 @@ func getAppUUID() (string, *api.Client, error) {
 		return "", nil, fmt.Errorf("not linked to a project. Run '%s' or '%s link' first", execName(), execName())
 	}
 
-	appUUID := projectCfg.AppUUIDs["preview"]
+	env := config.EnvPreview
+	if prodFlag {
+		env = config.EnvProduction
+	}
+
+	appUUID := projectCfg.AppUUIDs[env]
 	if appUUID == "" {
-		return "", nil, fmt.Errorf("no application found. Deploy first with '%s'", execName())
+		return "", nil, fmt.Errorf("no application found for %s. Deploy first with '%s'", env, execName())
 	}
 
 	globalCfg, err := config.LoadGlobal()
@@ -201,7 +206,17 @@ func runEnvPull(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Write to .env file
+	// Check if .env already exists
+	if _, err := os.Stat(".env"); err == nil {
+		overwrite, err := ui.Confirm(".env file already exists. Overwrite?")
+		if err != nil {
+			return err
+		}
+		if !overwrite {
+			return nil
+		}
+	}
+
 	file, err := os.Create(".env")
 	if err != nil {
 		return fmt.Errorf("failed to create .env file: %w", err)

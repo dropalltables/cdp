@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/dropalltables/cdp/internal/config"
 )
 
 // IsRepo checks if the directory is a git repository
@@ -59,7 +61,7 @@ func GetCurrentBranch(dir string) (string, error) {
 	}
 	branch := strings.TrimSpace(string(output))
 	if branch == "" {
-		return "main", nil
+		return config.DefaultBranch, nil
 	}
 	return branch, nil
 }

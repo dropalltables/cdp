@@ -168,9 +168,10 @@ CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000
 }
 
 func generateNodeDockerfile(f *detect.FrameworkInfo) string {
+	// Use shell form for CMD to allow complex start commands
 	startCmd := f.StartCommand
 	if startCmd == "" {
-		startCmd = "node index.js"
+		startCmd = "npm start"
 	}
 	return fmt.Sprintf(`FROM node:20-alpine
 WORKDIR /app
@@ -180,7 +181,7 @@ COPY . .
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3000/ || exit 1
-CMD ["%s"]
+CMD %s
 `, startCmd)
 }
 

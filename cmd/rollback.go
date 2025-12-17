@@ -34,11 +34,15 @@ func runRollback(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not linked to a project. Run '%s' or '%s link' first", execName(), execName())
 	}
 
-	appUUID := projectCfg.AppUUIDs["preview"]
-	envName := "preview"
+	if projectCfg.DeployMethod == config.DeployMethodDocker {
+		return fmt.Errorf("rollback is not supported for Docker deployments. Redeploy a previous image tag manually")
+	}
+
+	appUUID := projectCfg.AppUUIDs[config.EnvPreview]
+	envName := config.EnvPreview
 	if prodFlag {
-		appUUID = projectCfg.AppUUIDs["production"]
-		envName = "production"
+		appUUID = projectCfg.AppUUIDs[config.EnvProduction]
+		envName = config.EnvProduction
 	}
 	if appUUID == "" {
 		return fmt.Errorf("no application found for %s environment. Deploy first with '%s'", envName, execName())

@@ -95,9 +95,9 @@ func runHealth(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	if allHealthy {
 		ui.Success("All configured services are healthy")
-	} else {
-		ui.Warn("Some services have issues")
+		return nil
 	}
 
-	return nil
+	ui.Warn("Some services have issues")
+	return fmt.Errorf("health check failed")
 }

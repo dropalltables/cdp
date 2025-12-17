@@ -139,25 +139,15 @@ func SelectWithKeys(label string, options map[string]string) (string, error) {
 	return value, err
 }
 
-// ProceedOrCancel waits for Enter to proceed or Ctrl+C to cancel
-func ProceedOrCancel(message string) error {
-	if message == "" {
-		message = "Press Enter to proceed, Ctrl+C to cancel"
-	}
-
-	fmt.Println()
-	fmt.Print(dimStyle.Render(message + ": "))
-
-	// Set up signal handler for Ctrl+C
+// waitForEnter waits for user to press Enter or Ctrl+C
+func waitForEnter() error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigChan)
 
-	// Channel to signal when Enter is pressed
 	done := make(chan bool, 1)
 	errChan := make(chan error, 1)
 
-	// Read from stdin in a goroutine
 	go func() {
 		reader := bufio.NewReader(os.Stdin)
 		_, err := reader.ReadBytes('\n')
@@ -168,24 +158,32 @@ func ProceedOrCancel(message string) error {
 		done <- true
 	}()
 
-	// Wait for either Enter or Ctrl+C
 	select {
 	case <-done:
-		// Enter was pressed, proceed
-		fmt.Println()
 		return nil
 	case <-sigChan:
-		// Ctrl+C was pressed, cancel
 		return fmt.Errorf("cancelled")
 	case err := <-errChan:
-		// Error reading input
 		return fmt.Errorf("failed to read input: %w", err)
 	}
 }
 
+// ProceedOrCancel waits for Enter to proceed or Ctrl+C to cancel
+func ProceedOrCancel(message string) error {
+	if message == "" {
+		message = "Press Enter to proceed, Ctrl+C to cancel"
+	}
+	fmt.Println()
+	fmt.Print(dimStyle.Render(message + ": "))
+	if err := waitForEnter(); err != nil {
+		return err
+	}
+	fmt.Println()
+	return nil
+}
+
 // WelcomeScreen displays a styled welcome screen and waits for user to proceed
 func WelcomeScreen() error {
-	// Display ASCII logo
 	logo := `           .___       
   ____   __| _/_____  
 _/ ___\ / __ |\____ \ 
@@ -199,36 +197,5 @@ _/ ___\ / __ |\____ \
 	fmt.Println(helpStyle.Render("Press [ENTER] to continue, [CTRL+C] to exit"))
 	fmt.Println()
 
-	// Set up signal handler for Ctrl+C
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigChan)
-
-	// Channel to signal when Enter is pressed
-	done := make(chan bool, 1)
-	errChan := make(chan error, 1)
-
-	// Read from stdin in a goroutine
-	go func() {
-		reader := bufio.NewReader(os.Stdin)
-		_, err := reader.ReadBytes('\n')
-		if err != nil {
-			errChan <- err
-			return
-		}
-		done <- true
-	}()
-
-	// Wait for either Enter or Ctrl+C
-	select {
-	case <-done:
-		// Enter was pressed, proceed
-		return nil
-	case <-sigChan:
-		// Ctrl+C was pressed, cancel
-		return fmt.Errorf("cancelled")
-	case err := <-errChan:
-		// Error reading input
-		return fmt.Errorf("failed to read input: %w", err)
-	}
+	return waitForEnter()
 }

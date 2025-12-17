@@ -78,9 +78,15 @@ func runLink(cmd *cobra.Command, args []string) error {
 	app := appMap[appUUID]
 
 	// Determine deploy method based on app config
-	deployMethod := "git"
+	deployMethod := config.DeployMethodGit
 	if app.DockerRegistryName != "" {
-		deployMethod = "docker"
+		deployMethod = config.DeployMethodDocker
+	}
+
+	// Determine which environment to link to
+	env := config.EnvPreview
+	if prodFlag {
+		env = config.EnvProduction
 	}
 
 	// Create project config
@@ -88,7 +94,7 @@ func runLink(cmd *cobra.Command, args []string) error {
 		Name:           getWorkingDirName(),
 		DeployMethod:   deployMethod,
 		ServerUUID:     "", // We don't have this from the app listing
-		AppUUIDs:       map[string]string{"preview": appUUID},
+		AppUUIDs:       map[string]string{env: appUUID},
 		Framework:      app.BuildPack,
 		InstallCommand: app.InstallCommand,
 		BuildCommand:   app.BuildCommand,
