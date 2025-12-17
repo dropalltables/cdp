@@ -97,25 +97,18 @@ func runEnvLs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	envName := config.EnvPreview
-	if prodFlag {
-		envName = config.EnvProduction
-	}
+	ui.Section("Environment Variables")
 
-	ui.Section(fmt.Sprintf("Environment Variables - %s", envName))
-
-	var envVars []api.EnvVar
-	err = ui.WithSpinner("Loading environment variables", func() error {
-		var err error
-		envVars, err = client.GetApplicationEnvVars(appUUID)
-		return err
-	})
-
+	ui.Info("Loading environment variables...")
+	allEnvVars, err := client.GetApplicationEnvVars(appUUID)
 	if err != nil {
+		ui.Error("Failed to load environment variables")
 		return fmt.Errorf("failed to fetch environment variables: %w", err)
 	}
+	
+	ui.Success("Loaded environment variables")
 
-	if len(envVars) == 0 {
+	if len(allEnvVars) == 0 {
 		ui.Spacer()
 		ui.Dim("No environment variables configured")
 		ui.NextSteps([]string{
@@ -125,11 +118,11 @@ func runEnvLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Build table
-	headers := []string{"Key", "Value"}
+	// Build table with environment label
+	headers := []string{"Environment", "Key", "Value"}
 	rows := [][]string{}
 
-	for _, env := range envVars {
+	for _, env := range allEnvVars {
 		value := env.Value
 		// Mask sensitive values
 		if len(value) > 50 {
@@ -141,16 +134,18 @@ func runEnvLs(cmd *cobra.Command, args []string) error {
 			value = "••••••••"
 		}
 
-		rows = append(rows, []string{
-			env.Key,
-			ui.DimStyle.Render(value),
-		})
-	}
+		envLabel := "Production"
+		if env.IsPreview {
+			envLabel = "Preview"
+		}
 
+		rows = append(rows, []string{envLabel, env.Key, value})
+	}
+	
 	ui.Spacer()
 	ui.Table(headers, rows)
 	ui.Spacer()
-	ui.Dim(fmt.Sprintf("Total: %d variables", len(envVars)))
+	ui.Dim(fmt.Sprintf("Total: %d variables", len(allEnvVars)))
 
 	return nil
 }
@@ -170,14 +165,16 @@ func runEnvAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	err = ui.WithSpinner(fmt.Sprintf("Adding %s", key), func() error {
-		_, err := client.CreateApplicationEnvVar(appUUID, key, value, false, false)
-		return err
-	})
+	// Set is_preview based on environment
+	isPreview := !prodFlag
 
+	ui.Info(fmt.Sprintf("Adding %s...", key))
+	_, err = client.CreateApplicationEnvVar(appUUID, key, value, false, isPreview)
 	if err != nil {
+		ui.Error(fmt.Sprintf("Failed to add %s", key))
 		return fmt.Errorf("failed to add environment variable: %w", err)
 	}
+	ui.Success(fmt.Sprintf("Added %s", key))
 
 	ui.NextSteps([]string{
 		fmt.Sprintf("Redeploy with '%s' for changes to take effect", execName()),
@@ -204,41 +201,39 @@ func runEnvRm(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Find the env var by key
-	var envVars []api.EnvVar
-	var envUUID string
-	
-	err = ui.WithSpinner("Finding environment variable", func() error {
-		var err error
-		envVars, err = client.GetApplicationEnvVars(appUUID)
-		if err != nil {
-			return err
-		}
-
-		for _, env := range envVars {
-			if env.Key == key {
-				envUUID = env.UUID
-				break
-			}
-		}
-
-		if envUUID == "" {
-			return fmt.Errorf("variable not found")
-		}
-		return nil
-	})
-
+	// Find the env var by key, matching the environment
+	isPreview := !prodFlag
+	ui.Info("Finding environment variable...")
+	envVars, err := client.GetApplicationEnvVars(appUUID)
 	if err != nil {
-		return fmt.Errorf("environment variable '%s' not found", key)
+		ui.Error("Failed to fetch environment variables")
+		return fmt.Errorf("failed to fetch environment variables: %w", err)
 	}
 
-	err = ui.WithSpinner(fmt.Sprintf("Removing %s", key), func() error {
-		return client.DeleteApplicationEnvVar(appUUID, envUUID)
-	})
+	var envUUID string
+	for _, env := range envVars {
+		if env.Key == key && env.IsPreview == isPreview {
+			envUUID = env.UUID
+			break
+		}
+	}
 
+	if envUUID == "" {
+		envName := config.EnvPreview
+		if prodFlag {
+			envName = config.EnvProduction
+		}
+		ui.Error(fmt.Sprintf("Variable '%s' not found in %s", key, envName))
+		return fmt.Errorf("environment variable '%s' not found in %s", key, envName)
+	}
+
+	ui.Info(fmt.Sprintf("Removing %s...", key))
+	err = client.DeleteApplicationEnvVar(appUUID, envUUID)
 	if err != nil {
+		ui.Error(fmt.Sprintf("Failed to remove %s", key))
 		return fmt.Errorf("failed to remove environment variable: %w", err)
 	}
+	ui.Success(fmt.Sprintf("Removed %s", key))
 
 	ui.NextSteps([]string{
 		fmt.Sprintf("Redeploy with '%s' for changes to take effect", execName()),
@@ -260,16 +255,13 @@ func runEnvPull(cmd *cobra.Command, args []string) error {
 
 	ui.Section(fmt.Sprintf("Pull Environment Variables - %s", envName))
 
-	var envVars []api.EnvVar
-	err = ui.WithSpinner("Fetching environment variables", func() error {
-		var err error
-		envVars, err = client.GetApplicationEnvVars(appUUID)
-		return err
-	})
-
+	ui.Info("Fetching environment variables...")
+	envVars, err := client.GetApplicationEnvVars(appUUID)
 	if err != nil {
+		ui.Error("Failed to fetch environment variables")
 		return fmt.Errorf("failed to fetch environment variables: %w", err)
 	}
+	ui.Success("Fetched environment variables")
 
 	if len(envVars) == 0 {
 		ui.Warning("No environment variables to pull")
@@ -379,15 +371,17 @@ func runEnvPush(cmd *cobra.Command, args []string) error {
 	pushed := 0
 	failed := 0
 
+	// Set is_preview based on environment
+	isPreview := !prodFlag
+
 	for _, env := range envVars {
-		err := ui.WithSpinner(fmt.Sprintf("Pushing %s", env.Key), func() error {
-			_, err := client.CreateApplicationEnvVar(appUUID, env.Key, env.Value, false, false)
-			return err
-		})
+		ui.Info(fmt.Sprintf("Pushing %s...", env.Key))
+		_, err := client.CreateApplicationEnvVar(appUUID, env.Key, env.Value, false, isPreview)
 		if err != nil {
 			ui.Warning(fmt.Sprintf("Failed to push %s: %v", env.Key, err))
 			failed++
 		} else {
+			ui.Success(fmt.Sprintf("Pushed %s", env.Key))
 			pushed++
 		}
 	}

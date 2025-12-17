@@ -4,284 +4,197 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
-	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/log"
 )
 
-// Theme defines the color scheme
+var debugMode = os.Getenv("CDP_DEBUG") != ""
+
+func trace(fn string) {
+	if debugMode {
+		// Get caller info
+		_, file, line, _ := runtime.Caller(2)
+		fmt.Fprintf(os.Stderr, "[UI_DEBUG] %s (called from %s:%d)\n", fn, file, line)
+	}
+}
+
+// Colors
 var (
-	// Colors - inspired by Vercel's design system
-	ColorPrimary   = lipgloss.AdaptiveColor{Light: "#000000", Dark: "#FFFFFF"}
-	ColorSecondary = lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"}
-	ColorSuccess   = lipgloss.AdaptiveColor{Light: "#00A86B", Dark: "#00D68F"}
-	ColorError     = lipgloss.AdaptiveColor{Light: "#E00000", Dark: "#FF4949"}
-	ColorWarning   = lipgloss.AdaptiveColor{Light: "#F5A623", Dark: "#FBCA04"}
-	ColorInfo      = lipgloss.AdaptiveColor{Light: "#0070F3", Dark: "#3291FF"}
-	ColorDim       = lipgloss.AdaptiveColor{Light: "#999999", Dark: "#666666"}
-	ColorBorder    = lipgloss.AdaptiveColor{Light: "#EAEAEA", Dark: "#333333"}
+	ColorSuccess = lipgloss.Color("#00D68F")
+	ColorError   = lipgloss.Color("#FF4949")
+	ColorWarning = lipgloss.Color("#FBCA04")
+	ColorInfo    = lipgloss.Color("#3291FF")
+	ColorDim     = lipgloss.Color("#666666")
+	ColorCode    = lipgloss.Color("#888888")
+	ColorBorder  = lipgloss.Color("#333333")
+)
 
-	// Styles
-	baseStyle = lipgloss.NewStyle()
+// Styles for inline rendering
+var (
+	SuccessStyle = lipgloss.NewStyle().Foreground(ColorSuccess)
+	ErrorStyle   = lipgloss.NewStyle().Foreground(ColorError)
+	WarningStyle = lipgloss.NewStyle().Foreground(ColorWarning)
+	InfoStyle    = lipgloss.NewStyle().Foreground(ColorInfo)
+	DimStyle     = lipgloss.NewStyle().Foreground(ColorDim)
+	BoldStyle    = lipgloss.NewStyle().Bold(true)
+	CodeStyle    = lipgloss.NewStyle().Foreground(ColorCode)
+)
 
-	SuccessStyle = baseStyle.Copy().
-			Foreground(ColorSuccess)
-
-	ErrorStyle = baseStyle.Copy().
-			Foreground(ColorError)
-
-	WarningStyle = baseStyle.Copy().
-			Foreground(ColorWarning)
-
-	InfoStyle = baseStyle.Copy().
-			Foreground(ColorInfo)
-
-	DimStyle = baseStyle.Copy().
-			Foreground(ColorDim)
-
-	BoldStyle = baseStyle.Copy().
-			Foreground(ColorPrimary).
-			Bold(true)
-
-	CodeStyle = baseStyle.Copy().
-			Foreground(ColorSecondary).
-			Background(lipgloss.AdaptiveColor{Light: "#F5F5F5", Dark: "#1A1A1A"}).
-			Padding(0, 1)
-
-	// Icons - using Unicode characters for broad compatibility
+// Icons
+const (
 	IconSuccess = "✓"
 	IconError   = "✗"
-	IconWarning = "▲"
-	IconInfo    = "→"
+	IconWarning = "!"
+	IconInfo    = "•"
 	IconDot     = "•"
 	IconArrow   = "→"
 )
 
-// Output functions
+// Logger instance
+var logger = log.NewWithOptions(os.Stderr, log.Options{
+	ReportTimestamp: false,
+})
+
+func init() {
+	// Configure logger styles
+	styles := log.DefaultStyles()
+	styles.Levels[log.InfoLevel] = lipgloss.NewStyle().
+		SetString("•").
+		Foreground(ColorInfo)
+	styles.Levels[log.WarnLevel] = lipgloss.NewStyle().
+		SetString("!").
+		Foreground(ColorWarning)
+	styles.Levels[log.ErrorLevel] = lipgloss.NewStyle().
+		SetString("✗").
+		Foreground(ColorError)
+	logger.SetStyles(styles)
+}
+
+// Output functions using charmbracelet/log
 
 func Print(msg string) {
+	trace("Print")
 	fmt.Println(msg)
 }
 
 func Success(msg string) {
+	trace("Success")
 	fmt.Println(SuccessStyle.Render(IconSuccess + " " + msg))
 }
 
 func Error(msg string) {
-	fmt.Fprintln(os.Stderr, ErrorStyle.Render(IconError+" "+msg))
+	trace("Error")
+	logger.Error(msg)
 }
 
 func Warning(msg string) {
-	fmt.Println(WarningStyle.Render(IconWarning + " " + msg))
+	trace("Warning")
+	logger.Warn(msg)
 }
 
 func Info(msg string) {
-	fmt.Println(InfoStyle.Render(IconInfo + " " + msg))
+	trace("Info")
+	logger.Info(msg)
 }
 
 func Dim(msg string) {
+	trace("Dim")
 	fmt.Println(DimStyle.Render(msg))
 }
 
 func Bold(msg string) {
+	trace("Bold")
 	fmt.Println(BoldStyle.Render(msg))
 }
 
 func Spacer() {
+	trace("Spacer")
 	fmt.Println()
 }
 
 func Divider() {
-	width := 60
-	fmt.Println(DimStyle.Render(strings.Repeat("─", width)))
+	fmt.Println(DimStyle.Render(strings.Repeat("─", 60)))
 }
 
 func Code(msg string) {
 	fmt.Println(CodeStyle.Render(msg))
 }
 
-// Section prints a section header
 func Section(title string) {
 	fmt.Println()
 	fmt.Println(BoldStyle.Render(title))
 	fmt.Println()
 }
 
-// KeyValue prints a key-value pair
 func KeyValue(key, value string) {
-	keyStyle := DimStyle.Copy().Width(20)
-	fmt.Printf("%s %s\n", keyStyle.Render(key+":"), value)
+	fmt.Printf("%s %s\n", DimStyle.Render(key+":"), value)
 }
 
-// List prints a bulleted list
 func List(items []string) {
 	for _, item := range items {
 		fmt.Println(DimStyle.Render("  " + IconDot + " " + item))
 	}
 }
 
-// Spinner represents a loading indicator
-
-type spinnerModel struct {
-	spinner  spinner.Model
-	message  string
-	done     bool
-	err      error
-	quitting bool
-}
-
-func (m spinnerModel) Init() tea.Cmd {
-	return m.spinner.Tick
-}
-
-func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
-			m.quitting = true
-			return m, tea.Quit
-		}
-	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
-	case doneMsg:
-		m.done = true
-		m.err = msg.err
-		return m, tea.Quit
-	}
-	return m, nil
-}
-
-func (m spinnerModel) View() string {
-	if m.quitting {
-		return ""
-	}
-	if m.done {
-		if m.err != nil {
-			return ""
-		}
-		return ""
-	}
-	return fmt.Sprintf("%s %s", m.spinner.View(), DimStyle.Render(m.message))
-}
-
-type doneMsg struct {
-	err error
-}
-
-// Spinner wraps a bubbletea spinner
-type Spinner struct {
-	program *tea.Program
-	done    chan error
-}
-
-func NewSpinner(message string) *Spinner {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = InfoStyle
-
-	model := spinnerModel{
-		spinner: s,
-		message: message,
-	}
-
-	return &Spinner{
-		program: tea.NewProgram(model),
-		done:    make(chan error),
-	}
-}
-
-func (s *Spinner) Start() {
-	go func() {
-		if _, err := s.program.Run(); err != nil {
-			s.done <- err
-		}
-	}()
-	time.Sleep(50 * time.Millisecond) // Give spinner time to render
-}
-
-func (s *Spinner) Stop() {
-	s.program.Send(doneMsg{})
-	s.program.Quit()
-	time.Sleep(10 * time.Millisecond) // Let it clean up
-}
-
-func (s *Spinner) StopWithError(err error) {
-	s.program.Send(doneMsg{err: err})
-	s.program.Quit()
-	time.Sleep(10 * time.Millisecond)
-}
-
-// WithSpinner runs a function with a spinner
-func WithSpinner(message string, fn func() error) error {
-	s := NewSpinner(message)
-	s.Start()
-	err := fn()
-	if err != nil {
-		s.StopWithError(err)
-		Error(fmt.Sprintf("%s failed", message))
-		return err
-	}
-	s.Stop()
-	Success(fmt.Sprintf("%s", message))
-	return nil
-}
-
-// Table creates and displays a formatted table
+// Table renders a simple table
 func Table(headers []string, rows [][]string) {
 	if len(rows) == 0 {
 		Dim("No data to display")
 		return
 	}
 
-	columns := make([]table.Column, len(headers))
+	// Calculate column widths
+	widths := make([]int, len(headers))
 	for i, h := range headers {
-		// Calculate max width for this column
-		maxWidth := len(h)
-		for _, row := range rows {
-			if i < len(row) && len(row[i]) > maxWidth {
-				maxWidth = len(row[i])
+		widths[i] = len(h)
+	}
+	for _, row := range rows {
+		for i, cell := range row {
+			if i < len(widths) && len(cell) > widths[i] {
+				widths[i] = len(cell)
 			}
 		}
-		columns[i] = table.Column{
-			Title: h,
-			Width: maxWidth + 2,
+	}
+
+	// Build header row
+	headerLine := ""
+	for i, h := range headers {
+		if i > 0 {
+			headerLine += "  "
+		}
+		headerLine += BoldStyle.Render(fmt.Sprintf("%-*s", widths[i], h))
+	}
+	fmt.Println(headerLine)
+
+	// Build separator
+	sepLine := ""
+	totalWidth := 0
+	for i, w := range widths {
+		totalWidth += w
+		if i > 0 {
+			totalWidth += 2
 		}
 	}
+	sepLine = strings.Repeat("─", totalWidth)
+	fmt.Println(DimStyle.Render(sepLine))
 
-	tableRows := make([]table.Row, len(rows))
-	for i, row := range rows {
-		tableRows[i] = row
+	// Print rows
+	for _, row := range rows {
+		rowLine := ""
+		for i, cell := range row {
+			if i > 0 {
+				rowLine += "  "
+			}
+			if i < len(widths) {
+				rowLine += fmt.Sprintf("%-*s", widths[i], cell)
+			}
+		}
+		fmt.Println(rowLine)
 	}
-
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithRows(tableRows),
-		table.WithFocused(false),
-	)
-
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(ColorBorder).
-		BorderBottom(true).
-		Bold(true)
-	s.Cell = s.Cell.
-		Foreground(ColorPrimary)
-	s.Selected = s.Selected.
-		Foreground(ColorPrimary).
-		Background(lipgloss.Color("")).
-		Bold(false)
-
-	t.SetStyles(s)
-
-	fmt.Println(t.View())
 }
 
 // Prompt functions using huh
@@ -300,14 +213,14 @@ func InputWithDefault(prompt, defaultValue string) (string, error) {
 	var value string
 	err := huh.NewInput().
 		Title(prompt).
-		Value(&value).
 		Placeholder(defaultValue).
+		Value(&value).
 		Run()
 	if err != nil {
 		return "", err
 	}
 	if value == "" {
-		value = defaultValue
+		return defaultValue, nil
 	}
 	return value, nil
 }
@@ -371,7 +284,6 @@ func SelectWithKeys(prompt string, options map[string]string) (string, error) {
 	return value, err
 }
 
-// MultiSelect allows selecting multiple options
 func MultiSelect(prompt string, options []string) ([]string, error) {
 	if len(options) == 0 {
 		return nil, fmt.Errorf("no options provided")
@@ -391,20 +303,17 @@ func MultiSelect(prompt string, options []string) ([]string, error) {
 	return values, err
 }
 
-// Form represents a multi-step form
 func Form(groups ...*huh.Group) error {
-	form := huh.NewForm(groups...)
-	return form.Run()
+	return huh.NewForm(groups...).Run()
 }
 
-// ConfirmAction prompts for a potentially destructive action
 func ConfirmAction(action, resource string) (bool, error) {
 	Warning(fmt.Sprintf("This will %s: %s", action, resource))
 	Spacer()
 	return Confirm(fmt.Sprintf("Are you sure you want to %s?", action))
 }
 
-// LogStream represents a real-time log viewer
+// LogStream for real-time log viewing
 type LogStream struct {
 	writer io.Writer
 }
@@ -414,7 +323,6 @@ func NewLogStream() *LogStream {
 }
 
 func (l *LogStream) Write(msg string) {
-	// Write log line with subtle styling
 	fmt.Fprintln(l.writer, DimStyle.Render(msg))
 }
 
@@ -422,7 +330,24 @@ func (l *LogStream) WriteRaw(msg string) {
 	fmt.Fprint(l.writer, msg)
 }
 
-// Status represents a status line that can be updated
+// CmdOutput is a writer that styles command output as dimmed streamed logs
+type CmdOutput struct{}
+
+func NewCmdOutput() *CmdOutput {
+	return &CmdOutput{}
+}
+
+func (c *CmdOutput) Write(p []byte) (n int, err error) {
+	lines := strings.Split(string(p), "\n")
+	for _, line := range lines {
+		if line != "" {
+			fmt.Println(DimStyle.Render("  " + line))
+		}
+	}
+	return len(p), nil
+}
+
+// Status line
 type Status struct {
 	message string
 }
@@ -437,19 +362,19 @@ func (s *Status) Update(message string) {
 }
 
 func (s *Status) Done() {
-	fmt.Println() // New line after status updates
+	fmt.Println()
 }
 
-// Helper to show next steps
+// Helper functions
+
 func NextSteps(steps []string) {
-	Spacer()
+	trace("NextSteps")
 	Dim("Next steps:")
 	for _, step := range steps {
 		fmt.Println(DimStyle.Render("  " + IconArrow + " " + step))
 	}
 }
 
-// Helper for error with suggestion
 func ErrorWithSuggestion(err error, suggestion string) {
 	Error(err.Error())
 	if suggestion != "" {
@@ -458,7 +383,6 @@ func ErrorWithSuggestion(err error, suggestion string) {
 	}
 }
 
-// StepProgress shows progress through a multi-step process
 func StepProgress(current, total int, stepName string) {
 	progress := DimStyle.Render(fmt.Sprintf("[%d/%d]", current, total))
 	fmt.Printf("%s %s\n", progress, stepName)

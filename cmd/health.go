@@ -12,10 +12,11 @@ import (
 )
 
 var healthCmd = &cobra.Command{
-	Use:   "health",
-	Short: "Check service connectivity",
-	Long:  "Verify connections to Coolify, GitHub, and Docker registry.",
-	RunE:  runHealth,
+	Use:     "health",
+	Aliases: []string{"whoami"},
+	Short:   "Check service connectivity",
+	Long:    "Verify connections to Coolify, GitHub, and Docker registry.",
+	RunE:    runHealth,
 }
 
 func init() {
@@ -176,17 +177,15 @@ func runHealth(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.Table(headers, rows)
-	ui.Spacer()
 
 	if allHealthy {
 		ui.Success("All services are operational")
-		return nil
+	} else {
+		ui.Warning("Some services need attention")
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s login' to configure authentication", execName()),
+		})
 	}
-
-	ui.Warning("Some services need attention")
-	ui.NextSteps([]string{
-		fmt.Sprintf("Run '%s login' to configure authentication", execName()),
-	})
 
 	return nil // Don't return error, just show status
 }

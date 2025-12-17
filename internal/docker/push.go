@@ -2,9 +2,10 @@ package docker
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/dropalltables/cdp/internal/ui"
 )
 
 // PushOptions contains options for pushing a Docker image
@@ -26,8 +27,9 @@ func Push(opts *PushOptions) error {
 
 	imageTag := fmt.Sprintf("%s:%s", opts.ImageName, opts.Tag)
 	cmd := exec.Command("docker", "push", imageTag)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmdOut := ui.NewCmdOutput()
+	cmd.Stdout = cmdOut
+	cmd.Stderr = cmdOut
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("docker push failed: %w", err)
@@ -38,8 +40,9 @@ func Push(opts *PushOptions) error {
 func login(registry, username, password string) error {
 	cmd := exec.Command("docker", "login", registry, "-u", username, "--password-stdin")
 	cmd.Stdin = strings.NewReader(password)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmdOut := ui.NewCmdOutput()
+	cmd.Stdout = cmdOut
+	cmd.Stderr = cmdOut
 	return cmd.Run()
 }
 

@@ -81,10 +81,8 @@ func runReset(cmd *cobra.Command, args []string) error {
 		if uuid == "" {
 			continue
 		}
-		spinner := ui.NewSpinner(fmt.Sprintf("Deleting Coolify app (%s)...", env))
-		spinner.Start()
+		ui.Info(fmt.Sprintf("Deleting Coolify app (%s)...", env))
 		err := client.DeleteApplication(uuid)
-		spinner.Stop()
 		if err != nil {
 			ui.Warning(fmt.Sprintf("Failed to delete app %s: %v", env, err))
 		} else {
@@ -95,18 +93,14 @@ func runReset(cmd *cobra.Command, args []string) error {
 
 	// Wait for Coolify to finish cleanup
 	if deletedApps {
-		spinner := ui.NewSpinner("Waiting for Coolify cleanup...")
-		spinner.Start()
+		ui.Info("Waiting for Coolify cleanup...")
 		time.Sleep(5 * time.Second)
-		spinner.Stop()
 	}
 
 	// Delete Coolify project
 	if projectCfg.ProjectUUID != "" {
-		spinner := ui.NewSpinner("Deleting Coolify project...")
-		spinner.Start()
+		ui.Info("Deleting Coolify project...")
 		err := client.DeleteProject(projectCfg.ProjectUUID)
-		spinner.Stop()
 		if err != nil {
 			ui.Warning(fmt.Sprintf("Failed to delete project: %v", err))
 		} else {
@@ -123,10 +117,8 @@ func runReset(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			ui.Warning(fmt.Sprintf("Failed to get GitHub user: %v", err))
 		} else {
-			spinner := ui.NewSpinner("Deleting GitHub repository...")
-			spinner.Start()
+			ui.Info("Deleting GitHub repository...")
 			err = ghClient.DeleteRepo(user.Login, projectCfg.GitHubRepo)
-			spinner.Stop()
 			if err != nil {
 				ui.Warning(fmt.Sprintf("Failed to delete repo: %v", err))
 			} else {
@@ -136,10 +128,8 @@ func runReset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Delete local cdp.json
-	spinner := ui.NewSpinner("Removing cdp.json...")
-	spinner.Start()
+	ui.Info("Removing cdp.json...")
 	err = config.DeleteProject()
-	spinner.Stop()
 	if err != nil {
 		ui.Warning(fmt.Sprintf("Failed to delete cdp.json: %v", err))
 	} else {

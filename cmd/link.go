@@ -52,16 +52,13 @@ func runLink(cmd *cobra.Command, args []string) error {
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
 	// List applications
-	var apps []api.Application
-	err = ui.WithSpinner("Loading applications", func() error {
-		var err error
-		apps, err = client.ListApplications()
-		return err
-	})
-
+	ui.Info("Loading applications...")
+	apps, err := client.ListApplications()
 	if err != nil {
+		ui.Error("Failed to load applications")
 		return fmt.Errorf("failed to list applications: %w", err)
 	}
+	ui.Success("Loaded applications")
 
 	if len(apps) == 0 {
 		ui.Spacer()

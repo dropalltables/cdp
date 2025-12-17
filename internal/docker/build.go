@@ -11,6 +11,7 @@ import (
 
 	"github.com/dropalltables/cdp/internal/config"
 	"github.com/dropalltables/cdp/internal/detect"
+	"github.com/dropalltables/cdp/internal/ui"
 )
 
 // BuildOptions contains options for building a Docker image
@@ -52,8 +53,9 @@ func Build(opts *BuildOptions) error {
 
 	cmd := exec.Command("docker", args...)
 	cmd.Dir = opts.Dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmdOut := ui.NewCmdOutput()
+	cmd.Stdout = cmdOut
+	cmd.Stderr = cmdOut
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("docker build failed: %w", err)

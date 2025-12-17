@@ -39,7 +39,10 @@ func runRollback(cmd *cobra.Command, args []string) error {
 		ui.Error("Rollback is not supported for Docker-based deployments")
 		ui.Spacer()
 		ui.Dim("For Docker deployments, manually redeploy a previous image tag")
-		return fmt.Errorf("rollback not supported")
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s --help' for usage", execName()),
+		})
+		return nil
 	}
 
 	envName := config.EnvPreview
@@ -66,16 +69,13 @@ func runRollback(cmd *cobra.Command, args []string) error {
 	ui.Section(fmt.Sprintf("Rollback - %s", envName))
 
 	// List recent deployments
-	var deployments []api.Deployment
-	err = ui.WithSpinner("Fetching deployment history", func() error {
-		var err error
-		deployments, err = client.ListDeployments(appUUID)
-		return err
-	})
-
+	ui.Info("Fetching deployment history...")
+	deployments, err := client.ListDeployments(appUUID)
 	if err != nil {
+		ui.Error("Failed to fetch deployments")
 		return fmt.Errorf("failed to fetch deployments: %w", err)
 	}
+	ui.Success("Fetched deployment history")
 
 	if len(deployments) < 2 {
 		ui.Spacer()
@@ -167,23 +167,20 @@ func runRollback(cmd *cobra.Command, args []string) error {
 	ui.Spacer()
 
 	// Trigger rollback
-	err = ui.WithSpinner("Initiating rollback", func() error {
-		// Update app to use the old commit
-		if selectedDeployment.GitCommitSha != "" {
-			err := client.UpdateApplication(appUUID, map[string]any{
-				"git_commit_sha": selectedDeployment.GitCommitSha,
-			})
-			if err != nil {
-				return err
-			}
+	ui.Info("Initiating rollback...")
+	if selectedDeployment.GitCommitSha != "" {
+		err = client.UpdateApplication(appUUID, map[string]any{
+			"git_commit_sha": selectedDeployment.GitCommitSha,
+		})
+		if err != nil {
+			ui.Error("Failed to update application")
+			return fmt.Errorf("rollback failed: %w", err)
 		}
+	}
 
-		// Trigger deploy
-		_, err := client.Deploy(appUUID, true)
-		return err
-	})
-
+	_, err = client.Deploy(appUUID, true)
 	if err != nil {
+		ui.Error("Failed to trigger deployment")
 		return fmt.Errorf("rollback failed: %w", err)
 	}
 

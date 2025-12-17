@@ -63,13 +63,13 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Validate credentials
 	ui.Spacer()
-	err = ui.WithSpinner("Connecting to Coolify", func() error {
-		client := api.NewClient(coolifyURL, token)
-		return client.HealthCheck()
-	})
-	if err != nil {
+	ui.Info("Connecting to Coolify...")
+	client := api.NewClient(coolifyURL, token)
+	if err := client.HealthCheck(); err != nil {
+		ui.Error("Connection failed")
 		return fmt.Errorf("failed to connect: %w", err)
 	}
+	ui.Success("Connected to Coolify")
 
 	// Save base credentials
 	cfg.CoolifyURL = coolifyURL
@@ -97,23 +97,16 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		}
 		if githubToken != "" {
 			// Verify GitHub token
-			var username string
-			err = ui.WithSpinner("Verifying GitHub token", func() error {
-				ghClient := git.NewGitHubClient(githubToken)
-				user, err := ghClient.GetUser()
-				if err != nil {
-					return err
-				}
-				username = user.Login
-				return nil
-			})
-
+			ui.Info("Verifying GitHub token...")
+			ghClient := git.NewGitHubClient(githubToken)
+			user, err := ghClient.GetUser()
 			if err != nil {
 				ui.Warning("GitHub verification failed: " + err.Error())
 			} else {
+				ui.Success("GitHub token verified")
 				cfg.GitHubToken = githubToken
 				ui.Spacer()
-				ui.KeyValue("GitHub user", username)
+				ui.KeyValue("GitHub user", user.Login)
 			}
 		}
 	}
@@ -149,13 +142,12 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 			if registryURL != "" && username != "" && password != "" {
 				ui.Spacer()
-				err := ui.WithSpinner("Verifying registry credentials", func() error {
-					return docker.VerifyLogin(registryURL, username, password)
-				})
-
+				ui.Info("Verifying registry credentials...")
+				err := docker.VerifyLogin(registryURL, username, password)
 				if err != nil {
 					ui.Warning("Registry verification failed: " + err.Error())
 				} else {
+					ui.Success("Registry credentials verified")
 					cfg.DockerRegistry = &config.DockerRegistry{
 						URL:      registryURL,
 						Username: username,

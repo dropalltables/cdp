@@ -58,14 +58,10 @@ func runLogs(cmd *cobra.Command, args []string) error {
 
 	ui.Section(fmt.Sprintf("Deployment Logs - %s", env))
 
-	var logs string
-	err = ui.WithSpinner("Fetching logs", func() error {
-		var err error
-		logs, err = client.GetDeploymentLogs(appUUID)
-		return err
-	})
-
+	ui.Info("Fetching logs...")
+	logs, err := client.GetDeploymentLogs(appUUID)
 	if err != nil {
+		ui.Error("Failed to fetch logs")
 		return fmt.Errorf("failed to fetch logs: %w", err)
 	}
 

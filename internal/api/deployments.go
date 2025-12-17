@@ -34,9 +34,9 @@ func (c *Client) DeployByTag(tag string, force bool) (*DeployResponse, error) {
 
 // GetDeploymentLogs returns logs for a deployment
 func (c *Client) GetDeploymentLogs(appUUID string) (string, error) {
-	var logs string
-	err := c.Get(fmt.Sprintf("/applications/%s/logs", appUUID), &logs)
-	return logs, err
+	var resp DeploymentLogsResponse
+	err := c.Get(fmt.Sprintf("/applications/%s/logs", appUUID), &resp)
+	return resp.Logs, err
 }
 
 // Deployment represents a deployment in Coolify

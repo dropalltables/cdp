@@ -50,10 +50,9 @@ func (c *Client) GetApplicationEnvVars(uuid string) ([]EnvVar, error) {
 // CreateApplicationEnvVar creates an environment variable for an application
 func (c *Client) CreateApplicationEnvVar(uuid, key, value string, isBuildTime, isPreview bool) (*EnvVar, error) {
 	body := map[string]interface{}{
-		"key":           key,
-		"value":         value,
-		"is_build_time": isBuildTime,
-		"is_preview":    isPreview,
+		"key":        key,
+		"value":      value,
+		"is_preview": isPreview,
 	}
 	var envVar EnvVar
 	err := c.Post(fmt.Sprintf("/applications/%s/envs", uuid), body, &envVar)
