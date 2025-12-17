@@ -11,8 +11,8 @@ import (
 
 var whoamiCmd = &cobra.Command{
 	Use:   "whoami",
-	Short: "Show current login status",
-	Long:  "Display information about the current Coolify connection.",
+	Short: "Show authentication status",
+	Long:  "Display current authentication and configuration status.",
 	RunE:  runWhoami,
 }
 
@@ -23,43 +23,58 @@ func init() {
 func runWhoami(cmd *cobra.Command, args []string) error {
 	cfg, err := config.LoadGlobal()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	if cfg.CoolifyURL == "" || cfg.CoolifyToken == "" {
-		ui.Warn("Not logged in")
-		ui.Dim(fmt.Sprintf("Run '%s login' to authenticate", execName()))
+		ui.Warning("Not authenticated")
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s login' to get started", execName()),
+		})
 		return nil
 	}
 
-	fmt.Println("Current configuration:")
-	fmt.Println()
-	fmt.Printf("  Coolify URL: %s\n", cfg.CoolifyURL)
+	ui.Section("Authentication Status")
 
 	// Check connection
 	client := api.NewClient(cfg.CoolifyURL, cfg.CoolifyToken)
-	if err := client.HealthCheck(); err != nil {
-		ui.Warn("Connection failed - credentials may be invalid")
+	var connected bool
+	err = ui.WithSpinner("Checking connection", func() error {
+		return client.HealthCheck()
+	})
+	connected = (err == nil)
+
+	ui.Spacer()
+	
+	// Show connection status
+	if connected {
+		ui.Success("Connected to Coolify")
 	} else {
-		ui.Success("Connected")
+		ui.Error("Connection failed")
+		ui.Dim("Your credentials may be invalid or the server is unreachable")
 	}
 
-	// Show configured features
-	fmt.Println()
-	fmt.Println("Configured features:")
+	ui.Spacer()
+	ui.Divider()
+	
+	// Show configuration
+	ui.Section("Configuration")
+	ui.KeyValue("Coolify URL", cfg.CoolifyURL)
+	
 	if cfg.GitHubToken != "" {
-		fmt.Println("  GitHub: configured")
+		ui.KeyValue("GitHub", ui.SuccessStyle.Render("Configured"))
 	} else {
-		ui.Dim("  GitHub: not configured")
+		ui.KeyValue("GitHub", ui.DimStyle.Render("Not configured"))
 	}
+	
 	if cfg.DockerRegistry != nil {
-		fmt.Printf("  Docker registry: %s\n", cfg.DockerRegistry.URL)
+		ui.KeyValue("Docker Registry", cfg.DockerRegistry.URL)
 	} else {
-		ui.Dim("  Docker registry: not configured")
+		ui.KeyValue("Docker Registry", ui.DimStyle.Render("Not configured"))
 	}
 
 	if cfg.DefaultServer != "" {
-		fmt.Printf("  Default server: %s\n", cfg.DefaultServer)
+		ui.KeyValue("Default Server", cfg.DefaultServer)
 	}
 
 	return nil

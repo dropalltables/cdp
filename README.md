@@ -104,4 +104,4 @@ Created automatically as `cdp.json` in your project directory. Add to `.gitignor
 
 ## License
 
-MIT
+AGPL 3.0

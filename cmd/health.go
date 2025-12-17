@@ -13,7 +13,7 @@ import (
 
 var healthCmd = &cobra.Command{
 	Use:   "health",
-	Short: "Check connectivity to all services",
+	Short: "Check service connectivity",
 	Long:  "Verify connections to Coolify, GitHub, and Docker registry.",
 	RunE:  runHealth,
 }
@@ -25,58 +25,112 @@ func init() {
 func runHealth(cmd *cobra.Command, args []string) error {
 	cfg, err := config.LoadGlobal()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	fmt.Println("Health Check")
-	fmt.Println()
+	ui.Section("Health Check")
 
+	type check struct {
+		name   string
+		status string
+		detail string
+		ok     bool
+	}
+
+	checks := []check{}
 	allHealthy := true
 
 	// Check Coolify
-	fmt.Print("Coolify:         ")
 	if cfg.CoolifyURL == "" || cfg.CoolifyToken == "" {
-		ui.Dim("not configured")
+		checks = append(checks, check{
+			name:   "Coolify",
+			status: "Not configured",
+			detail: cfg.CoolifyURL,
+			ok:     false,
+		})
+		allHealthy = false
 	} else {
 		client := api.NewClient(cfg.CoolifyURL, cfg.CoolifyToken)
 		if err := client.HealthCheck(); err != nil {
-			ui.Error("connection failed")
+			checks = append(checks, check{
+				name:   "Coolify",
+				status: "Connection failed",
+				detail: cfg.CoolifyURL,
+				ok:     false,
+			})
 			allHealthy = false
 		} else {
-			ui.Success("connected")
+			checks = append(checks, check{
+				name:   "Coolify",
+				status: "Connected",
+				detail: cfg.CoolifyURL,
+				ok:     true,
+			})
 		}
 	}
 
 	// Check GitHub
-	fmt.Print("GitHub:          ")
 	if cfg.GitHubToken == "" {
-		ui.Dim("not configured")
+		checks = append(checks, check{
+			name:   "GitHub",
+			status: "Not configured",
+			detail: "-",
+			ok:     false,
+		})
 	} else {
 		ghClient := git.NewGitHubClient(cfg.GitHubToken)
 		user, err := ghClient.GetUser()
 		if err != nil {
-			ui.Error("authentication failed")
+			checks = append(checks, check{
+				name:   "GitHub",
+				status: "Authentication failed",
+				detail: "-",
+				ok:     false,
+			})
 			allHealthy = false
 		} else {
-			ui.Success(fmt.Sprintf("authenticated as %s", user.Login))
+			checks = append(checks, check{
+				name:   "GitHub",
+				status: "Authenticated",
+				detail: user.Login,
+				ok:     true,
+			})
 		}
 	}
 
-	// Check Docker
-	fmt.Print("Docker (local):  ")
+	// Check Docker (local)
 	if !docker.IsDockerAvailable() {
-		ui.Warn("not running")
+		checks = append(checks, check{
+			name:   "Docker",
+			status: "Not running",
+			detail: "local",
+			ok:     false,
+		})
 	} else {
-		ui.Success("running")
+		checks = append(checks, check{
+			name:   "Docker",
+			status: "Running",
+			detail: "local",
+			ok:     true,
+		})
 	}
 
 	// Check Docker Registry
-	fmt.Print("Docker registry: ")
 	if cfg.DockerRegistry == nil {
-		ui.Dim("not configured")
+		checks = append(checks, check{
+			name:   "Docker Registry",
+			status: "Not configured",
+			detail: "-",
+			ok:     false,
+		})
 	} else {
 		if !docker.IsDockerAvailable() {
-			ui.Dim("skipped (Docker not running)")
+			checks = append(checks, check{
+				name:   "Docker Registry",
+				status: "Skipped",
+				detail: "Docker not running",
+				ok:     false,
+			})
 		} else {
 			err := docker.VerifyLogin(
 				cfg.DockerRegistry.URL,
@@ -84,20 +138,55 @@ func runHealth(cmd *cobra.Command, args []string) error {
 				cfg.DockerRegistry.Password,
 			)
 			if err != nil {
-				ui.Error("authentication failed")
+				checks = append(checks, check{
+					name:   "Docker Registry",
+					status: "Authentication failed",
+					detail: cfg.DockerRegistry.URL,
+					ok:     false,
+				})
 				allHealthy = false
 			} else {
-				ui.Success(fmt.Sprintf("authenticated (%s)", cfg.DockerRegistry.URL))
+				checks = append(checks, check{
+					name:   "Docker Registry",
+					status: "Authenticated",
+					detail: cfg.DockerRegistry.URL,
+					ok:     true,
+				})
 			}
 		}
 	}
 
-	fmt.Println()
+	// Display results as table
+	headers := []string{"Service", "Status", "Details"}
+	rows := [][]string{}
+
+	for _, c := range checks {
+		statusDisplay := c.status
+		if c.ok {
+			statusDisplay = ui.SuccessStyle.Render(ui.IconSuccess + " " + c.status)
+		} else {
+			statusDisplay = ui.DimStyle.Render(ui.IconDot + " " + c.status)
+		}
+		
+		rows = append(rows, []string{
+			c.name,
+			statusDisplay,
+			c.detail,
+		})
+	}
+
+	ui.Table(headers, rows)
+	ui.Spacer()
+
 	if allHealthy {
-		ui.Success("All configured services are healthy")
+		ui.Success("All services are operational")
 		return nil
 	}
 
-	ui.Warn("Some services have issues")
-	return fmt.Errorf("health check failed")
+	ui.Warning("Some services need attention")
+	ui.NextSteps([]string{
+		fmt.Sprintf("Run '%s login' to configure authentication", execName()),
+	})
+
+	return nil // Don't return error, just show status
 }

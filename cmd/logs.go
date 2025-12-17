@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/dropalltables/cdp/internal/api"
 	"github.com/dropalltables/cdp/internal/config"
@@ -12,7 +13,7 @@ import (
 var logsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "View deployment logs",
-	Long:  "View logs for the deployed application.",
+	Long:  "Display logs from the most recent deployment.",
 	RunE:  runLogs,
 }
 
@@ -26,41 +27,69 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	}
 
 	projectCfg, err := config.LoadProject()
-	if err != nil {
-		return fmt.Errorf("failed to load project config: %w", err)
-	}
-	if projectCfg == nil {
-		return fmt.Errorf("not linked to a project. Run '%s' or '%s link' first", execName(), execName())
+	if err != nil || projectCfg == nil {
+		ui.Error("No project configuration found")
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s' to deploy", execName()),
+		})
+		return fmt.Errorf("not linked to a project")
 	}
 
-	appUUID := projectCfg.AppUUIDs[config.EnvPreview]
+	env := config.EnvPreview
 	if prodFlag {
-		appUUID = projectCfg.AppUUIDs[config.EnvProduction]
+		env = config.EnvProduction
 	}
+
+	appUUID := projectCfg.AppUUIDs[env]
 	if appUUID == "" {
-		return fmt.Errorf("no application found for this environment. Deploy first with '%s'", execName())
+		ui.Error(fmt.Sprintf("No deployment found for %s environment", env))
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s' to deploy", execName()),
+		})
+		return fmt.Errorf("no deployment found")
 	}
 
 	globalCfg, err := config.LoadGlobal()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
-	spinner := ui.NewSpinner("Fetching logs...")
-	spinner.Start()
-	logs, err := client.GetDeploymentLogs(appUUID)
-	spinner.Stop()
+	ui.Section(fmt.Sprintf("Deployment Logs - %s", env))
+
+	var logs string
+	err = ui.WithSpinner("Fetching logs", func() error {
+		var err error
+		logs, err = client.GetDeploymentLogs(appUUID)
+		return err
+	})
+
 	if err != nil {
-		return fmt.Errorf("failed to get logs: %w", err)
+		return fmt.Errorf("failed to fetch logs: %w", err)
 	}
 
 	if logs == "" {
-		ui.Dim("No logs available")
+		ui.Dim("No logs available yet")
+		ui.Spacer()
+		ui.NextSteps([]string{
+			fmt.Sprintf("Wait for deployment to start"),
+			fmt.Sprintf("Run '%s logs' again to check", execName()),
+		})
 		return nil
 	}
 
-	fmt.Println(logs)
+	// Display logs
+	ui.Spacer()
+	logStream := ui.NewLogStream()
+	
+	// Process and display logs line by line
+	lines := strings.Split(logs, "\n")
+	for _, line := range lines {
+		if line != "" {
+			logStream.WriteRaw(line + "\n")
+		}
+	}
+
 	return nil
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/dropalltables/cdp/internal/api"
 	"github.com/dropalltables/cdp/internal/config"
@@ -10,10 +11,11 @@ import (
 )
 
 var lsCmd = &cobra.Command{
-	Use:   "ls",
-	Short: "List deployments",
-	Long:  "List all applications associated with this project.",
-	RunE:  runLs,
+	Use:     "ls",
+	Aliases: []string{"list", "status"},
+	Short:   "List project deployments",
+	Long:    "Display all environments and their deployment status for this project.",
+	RunE:    runLs,
 }
 
 func init() {
@@ -26,47 +28,107 @@ func runLs(cmd *cobra.Command, args []string) error {
 	}
 
 	projectCfg, err := config.LoadProject()
-	if err != nil {
-		return fmt.Errorf("failed to load project config: %w", err)
-	}
-	if projectCfg == nil {
-		return fmt.Errorf("not linked to a project. Run '%s' or '%s link' first", execName(), execName())
+	if err != nil || projectCfg == nil {
+		ui.Error("No project configuration found")
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s' to set up a new project", execName()),
+			fmt.Sprintf("Run '%s link' to link to an existing app", execName()),
+		})
+		return fmt.Errorf("not linked to a project")
 	}
 
 	globalCfg, err := config.LoadGlobal()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
-	fmt.Printf("Deployments for %s:\n\n", projectCfg.Name)
-	fmt.Printf("%-12s %-10s %-40s\n", "ENV", "STATUS", "URL")
-	fmt.Printf("%-12s %-10s %-40s\n", "---", "------", "---")
+	ui.Section(fmt.Sprintf("Project: %s", projectCfg.Name))
 
+	if len(projectCfg.AppUUIDs) == 0 {
+		ui.Warning("No deployments found")
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s' to deploy", execName()),
+		})
+		return nil
+	}
+
+	// Fetch all apps
+	type appInfo struct {
+		env    string
+		app    *api.Application
+		err    error
+	}
+
+	apps := []appInfo{}
 	for env, appUUID := range projectCfg.AppUUIDs {
 		if appUUID == "" {
 			continue
 		}
 
 		app, err := client.GetApplication(appUUID)
-		if err != nil {
-			ui.Dim(fmt.Sprintf("%-12s %-10s %-40s", env, "error", "-"))
+		apps = append(apps, appInfo{
+			env: env,
+			app: app,
+			err: err,
+		})
+	}
+
+	// Build table
+	headers := []string{"Environment", "Status", "URL"}
+	rows := [][]string{}
+
+	for _, info := range apps {
+		if info.err != nil {
+			rows = append(rows, []string{
+				info.env,
+				ui.ErrorStyle.Render("error"),
+				ui.DimStyle.Render("-"),
+			})
 			continue
 		}
 
-		status := app.Status
+		status := info.app.Status
 		if status == "" {
 			status = "unknown"
 		}
 
-		url := app.FQDN
-		if url == "" {
-			url = "-"
+		// Style status based on value
+		var statusDisplay string
+		statusLower := strings.ToLower(status)
+		switch statusLower {
+		case "running":
+			statusDisplay = ui.SuccessStyle.Render(ui.IconSuccess + " " + status)
+		case "stopped", "exited":
+			statusDisplay = ui.DimStyle.Render(ui.IconDot + " " + status)
+		case "starting", "restarting":
+			statusDisplay = ui.InfoStyle.Render(ui.IconDot + " " + status)
+		case "error", "failed":
+			statusDisplay = ui.ErrorStyle.Render(ui.IconError + " " + status)
+		default:
+			statusDisplay = status
 		}
 
-		fmt.Printf("%-12s %-10s %-40s\n", env, status, url)
+		url := info.app.FQDN
+		if url == "" {
+			url = ui.DimStyle.Render("-")
+		} else {
+			url = ui.InfoStyle.Render(url)
+		}
+
+		rows = append(rows, []string{
+			info.env,
+			statusDisplay,
+			url,
+		})
 	}
+
+	ui.Table(headers, rows)
+	
+	ui.Spacer()
+	ui.KeyValue("Deploy method", projectCfg.DeployMethod)
+	ui.KeyValue("Framework", projectCfg.Framework)
 
 	return nil
 }

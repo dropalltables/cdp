@@ -33,27 +33,28 @@ func init() {
 }
 
 func runDeploy(isProd bool) error {
-	if err := ui.WelcomeScreen(); err != nil {
-		return err
-	}
-
 	if err := checkLogin(); err != nil {
 		return err
 	}
 
 	globalCfg, err := config.LoadGlobal()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	projectCfg, err := config.LoadProject()
-	if err != nil {
-		return fmt.Errorf("failed to load project config: %w", err)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to load project configuration: %w", err)
 	}
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
+	// First-time setup if no project config exists
 	if projectCfg == nil {
+		ui.Section("New Project Setup")
+		ui.Dim("Let's configure your project for deployment")
+		ui.Spacer()
+
 		projectCfg, err = firstTimeSetup(client, globalCfg, isProd)
 		if err != nil {
 			return err
@@ -65,16 +66,14 @@ func runDeploy(isProd bool) error {
 		env = config.EnvProduction
 	}
 
-	fmt.Println()
-	ui.Info(fmt.Sprintf("Ready to deploy to %s environment", env))
+	// Show deployment summary
+	ui.Section("Deploy")
+	ui.KeyValue("Project", projectCfg.Name)
+	ui.KeyValue("Environment", env)
+	ui.KeyValue("Method", projectCfg.DeployMethod)
+	ui.Spacer()
 
-	if err := ui.ProceedOrCancel("Press Enter to proceed, Ctrl+C to cancel"); err != nil {
-		return err
-	}
-
-	fmt.Println()
-	ui.Info(fmt.Sprintf("Deploying to %s environment...", env))
-
+	// Deploy based on method
 	if projectCfg.DeployMethod == config.DeployMethodDocker {
 		return deployDocker(client, globalCfg, projectCfg, env)
 	}
@@ -82,69 +81,85 @@ func runDeploy(isProd bool) error {
 }
 
 func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd bool) (*config.ProjectConfig, error) {
-	fmt.Println("Setting up new project...")
-	fmt.Println()
+	ui.StepProgress(1, 5, "Framework Detection")
 
 	// Detect framework
-	spinner := ui.NewSpinner("Detecting framework...")
-	spinner.Start()
-	framework, err := detect.Detect(".")
-	spinner.Stop()
+	var framework *detect.FrameworkInfo
+	err := ui.WithSpinner("Analyzing project", func() error {
+		var err error
+		framework, err = detect.Detect(".")
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect framework: %w", err)
 	}
 
-	fmt.Printf("Detected: %s\n", framework.Name)
-	fmt.Println()
+	ui.Spacer()
+	ui.Success(fmt.Sprintf("Detected: %s", framework.Name))
+	ui.Spacer()
 
-	// Display and allow editing of build settings
-	fmt.Println("Build Settings:")
+	// Display build settings
+	ui.Dim("Build Configuration:")
 	if framework.InstallCommand != "" {
-		fmt.Printf("  Install command: %s\n", framework.InstallCommand)
+		ui.KeyValue("  Install", ui.CodeStyle.Render(framework.InstallCommand))
 	}
 	if framework.BuildCommand != "" {
-		fmt.Printf("  Build command:   %s\n", framework.BuildCommand)
+		ui.KeyValue("  Build", ui.CodeStyle.Render(framework.BuildCommand))
 	}
 	if framework.StartCommand != "" {
-		fmt.Printf("  Start command:   %s\n", framework.StartCommand)
+		ui.KeyValue("  Start", ui.CodeStyle.Render(framework.StartCommand))
 	}
 	if framework.PublishDirectory != "" {
-		fmt.Printf("  Publish dir:     %s\n", framework.PublishDirectory)
+		ui.KeyValue("  Publish dir", framework.PublishDirectory)
 	}
-	fmt.Println()
+	ui.Spacer()
 
-	editSettings, err := ui.Confirm("Edit these settings?")
+	editSettings, err := ui.Confirm("Customize build settings?")
 	if err != nil {
 		return nil, err
 	}
 	if editSettings {
+		ui.Spacer()
 		framework, err = editBuildSettings(framework)
 		if err != nil {
 			return nil, err
 		}
+		ui.Spacer()
 	}
 
 	// Choose deployment method
-	fmt.Println()
+	ui.Divider()
+	ui.StepProgress(2, 5, "Deployment Method")
+	ui.Spacer()
+
 	deployMethod, err := chooseDeployMethod(globalCfg)
 	if err != nil {
 		return nil, err
 	}
 
 	// Select server
-	fmt.Println()
-	spinner = ui.NewSpinner("Loading servers...")
-	spinner.Start()
-	servers, err := client.ListServers()
-	spinner.Stop()
+	ui.Divider()
+	ui.StepProgress(3, 5, "Server Selection")
+	ui.Spacer()
+
+	var servers []api.Server
+	err = ui.WithSpinner("Loading servers", func() error {
+		var err error
+		servers, err = client.ListServers()
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list servers: %w", err)
 	}
 
 	if len(servers) == 0 {
-		return nil, fmt.Errorf("no servers found in Coolify. Please add a server first")
+		ui.Error("No servers found in Coolify")
+		ui.Spacer()
+		ui.Dim("Add a server in your Coolify dashboard first")
+		return nil, fmt.Errorf("no servers available")
 	}
 
+	ui.Spacer()
 	serverOptions := make(map[string]string)
 	for _, s := range servers {
 		displayName := s.Name
@@ -159,15 +174,21 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 	}
 
 	// Select or create project
-	fmt.Println()
-	spinner = ui.NewSpinner("Loading projects...")
-	spinner.Start()
-	projects, err := client.ListProjects()
-	spinner.Stop()
+	ui.Divider()
+	ui.StepProgress(4, 5, "Project Configuration")
+	ui.Spacer()
+
+	var projects []api.Project
+	err = ui.WithSpinner("Loading projects", func() error {
+		var err error
+		projects, err = client.ListProjects()
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list projects: %w", err)
 	}
 
+	ui.Spacer()
 	projectOptions := make([]string, 0, len(projects)+1)
 	projectOptions = append(projectOptions, "+ Create new project")
 	projectMap := make(map[string]api.Project)
@@ -176,7 +197,7 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 		projectMap[p.Name] = p
 	}
 
-	selectedProject, err := ui.Select("Select project:", projectOptions)
+	selectedProject, err := ui.Select("Select or create project:", projectOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -186,56 +207,56 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 
 	if selectedProject == "+ Create new project" {
 		// Create new project
+		ui.Spacer()
 		projectName := getWorkingDirName()
 		name, err := ui.InputWithDefault("Project name:", projectName)
 		if err != nil {
 			return nil, err
 		}
 
-		spinner = ui.NewSpinner("Creating project...")
-		spinner.Start()
-		newProject, err := client.CreateProject(name, "Created by cdp")
-		spinner.Stop()
+		ui.Spacer()
+		err = ui.WithSpinner(fmt.Sprintf("Creating project '%s'", name), func() error {
+			newProject, err := client.CreateProject(name, "Created by CDP")
+			if err != nil {
+				return err
+			}
+			projectUUID = newProject.UUID
+
+			// Fetch project to check for auto-created environments
+			project, err := client.GetProject(projectUUID)
+			if err == nil {
+				for _, env := range project.Environments {
+					if strings.ToLower(env.Name) == "preview" {
+						previewEnvUUID = env.UUID
+					}
+					if strings.ToLower(env.Name) == "production" {
+						prodEnvUUID = env.UUID
+					}
+				}
+			}
+
+			// Create missing environments
+			if previewEnvUUID == "" {
+				previewEnv, err := client.CreateEnvironment(projectUUID, "preview")
+				if err != nil {
+					return fmt.Errorf("failed to create preview environment: %w", err)
+				}
+				previewEnvUUID = previewEnv.UUID
+			}
+
+			if prodEnvUUID == "" {
+				prodEnv, err := client.CreateEnvironment(projectUUID, "production")
+				if err != nil {
+					return fmt.Errorf("failed to create production environment: %w", err)
+				}
+				prodEnvUUID = prodEnv.UUID
+			}
+
+			return nil
+		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create project: %w", err)
+			return nil, err
 		}
-		projectUUID = newProject.UUID
-
-		// Fetch project to check for auto-created environments
-		project, err := client.GetProject(projectUUID)
-		if err == nil {
-			for _, env := range project.Environments {
-				if strings.ToLower(env.Name) == "preview" {
-					previewEnvUUID = env.UUID
-				}
-				if strings.ToLower(env.Name) == "production" {
-					prodEnvUUID = env.UUID
-				}
-			}
-		}
-
-		// Create missing environments
-		spinner = ui.NewSpinner("Creating environments...")
-		spinner.Start()
-		if previewEnvUUID == "" {
-			previewEnv, err := client.CreateEnvironment(projectUUID, "preview")
-			if err != nil {
-				spinner.Stop()
-				return nil, fmt.Errorf("failed to create preview environment: %w", err)
-			}
-			previewEnvUUID = previewEnv.UUID
-		}
-
-		if prodEnvUUID == "" {
-			prodEnv, err := client.CreateEnvironment(projectUUID, "production")
-			if err != nil {
-				spinner.Stop()
-				return nil, fmt.Errorf("failed to create production environment: %w", err)
-			}
-			prodEnvUUID = prodEnv.UUID
-		}
-		spinner.Stop()
-		ui.Success("Project and environments created")
 	} else {
 		// Use existing project
 		project := projectMap[selectedProject]
@@ -303,8 +324,11 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 	}
 
 	// Advanced options
-	fmt.Println()
-	configureAdvanced, err := ui.Confirm("Configure advanced options (port, platform, domain, branch)?")
+	ui.Divider()
+	ui.StepProgress(5, 5, "Advanced Configuration")
+	ui.Spacer()
+
+	configureAdvanced, err := ui.Confirm("Configure advanced options?")
 	if err != nil {
 		return nil, err
 	}
@@ -315,19 +339,22 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 	}
 	platform := config.DefaultPlatform
 	branch := config.DefaultBranch
-	domain := "" // empty means Coolify auto-generates
+	domain := ""
 
 	if configureAdvanced {
-		fmt.Println()
+		ui.Spacer()
+		ui.Dim("Leave blank to use defaults")
+		ui.Spacer()
+
 		// Port
-		port, err = ui.InputWithDefault("Port:", port)
+		port, err = ui.InputWithDefault("Application port:", port)
 		if err != nil {
 			return nil, err
 		}
 
 		// Platform (for Docker builds)
 		if deployMethod == config.DeployMethodDocker {
-			platformOptions := []string{"linux/amd64 (Intel/AMD)", "linux/arm64 (Apple Silicon/ARM)"}
+			platformOptions := []string{"linux/amd64 (Intel/AMD)", "linux/arm64 (ARM)"}
 			platformChoice, err := ui.Select("Target platform:", platformOptions)
 			if err != nil {
 				return nil, err
@@ -346,13 +373,12 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 		}
 
 		// Domain
-		domainOptions := []string{"Auto-generate (Coolify wildcard)", "Custom domain"}
-		domainChoice, err := ui.Select("Domain:", domainOptions)
+		useDomain, err := ui.Confirm("Configure custom domain?")
 		if err != nil {
 			return nil, err
 		}
-		if domainChoice == "Custom domain" {
-			domain, err = ui.Input("Custom domain:", "app.example.com")
+		if useDomain {
+			domain, err = ui.Input("Domain:", "app.example.com")
 			if err != nil {
 				return nil, err
 			}
@@ -394,10 +420,22 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig, isProd b
 	}
 
 	// Save project config
-	if err := config.SaveProject(projectCfg); err != nil {
-		return nil, fmt.Errorf("failed to save project config: %w", err)
+	ui.Spacer()
+	err = ui.WithSpinner("Saving configuration", func() error {
+		return config.SaveProject(projectCfg)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to save configuration: %w", err)
 	}
-	ui.Success("Created cdp.json")
+
+	ui.Spacer()
+	ui.Divider()
+	ui.Success("Project configured successfully")
+	ui.Spacer()
+	ui.KeyValue("Name", projectCfg.Name)
+	ui.KeyValue("Framework", projectCfg.Framework)
+	ui.KeyValue("Deploy method", projectCfg.DeployMethod)
+	ui.Spacer()
 
 	return projectCfg, nil
 }
@@ -433,25 +471,38 @@ func chooseDeployMethod(globalCfg *config.GlobalConfig) (string, error) {
 	hasGitHub := globalCfg.GitHubToken != ""
 
 	if hasGitHub {
-		options = append(options, "Git-based (auto-manage GitHub repo)")
-		optionMap["Git-based (auto-manage GitHub repo)"] = config.DeployMethodGit
+		options = append(options, "Git (recommended)")
+		optionMap["Git (recommended)"] = config.DeployMethodGit
 	}
 	if hasDocker {
-		options = append(options, "Docker-based (build & push image)")
-		optionMap["Docker-based (build & push image)"] = config.DeployMethodDocker
+		options = append(options, "Docker (build locally)")
+		optionMap["Docker (build locally)"] = config.DeployMethodDocker
 	}
 
 	if len(options) == 0 {
-		fmt.Println()
-		ui.Warn("No deployment method available!")
-		fmt.Println("Please configure at least one of:")
-		fmt.Printf("  - GitHub token (run '%s login' and set up GitHub)\n", execName())
-		fmt.Printf("  - Docker registry (run '%s login' and set up Docker)\n", execName())
+		ui.Error("No deployment methods available")
+		ui.Spacer()
+		ui.Dim("Configure at least one deployment method:")
+		ui.List([]string{
+			"GitHub token (for git-based deployments)",
+			"Docker registry (for container deployments)",
+		})
+		ui.Spacer()
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s login' to configure authentication", execName()),
+		})
 		return "", fmt.Errorf("no deployment method configured")
 	}
 
-	// Always show available options
-	selected, err := ui.Select("Deployment method:", options)
+	if len(options) == 1 {
+		// Auto-select if only one option available
+		ui.Info(fmt.Sprintf("Using %s deployment", options[0]))
+		ui.Spacer()
+		return optionMap[options[0]], nil
+	}
+
+	// Show options
+	selected, err := ui.Select("Choose deployment method:", options)
 	if err != nil {
 		return "", err
 	}
@@ -462,11 +513,15 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 	// Generate tag
 	tag := docker.GenerateTag(env)
 
-	// Build image
-	fmt.Println()
-	spinner := ui.NewSpinner("Building Docker image...")
-	spinner.Start()
+	ui.Divider()
+	ui.Bold("Docker Build")
+	ui.Spacer()
+	ui.KeyValue("Image", projectCfg.DockerImage)
+	ui.KeyValue("Tag", tag)
+	ui.KeyValue("Platform", projectCfg.Platform)
+	ui.Spacer()
 
+	// Build image
 	framework := &detect.FrameworkInfo{
 		Name:             projectCfg.Framework,
 		InstallCommand:   projectCfg.InstallCommand,
@@ -475,6 +530,9 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 		PublishDirectory: projectCfg.PublishDir,
 	}
 
+	// Don't use spinner for Docker build - let Docker's progress display through
+	ui.Info("Building Docker image...")
+	ui.Spacer()
 	err := docker.Build(&docker.BuildOptions{
 		Dir:       ".",
 		ImageName: projectCfg.DockerImage,
@@ -482,16 +540,16 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 		Framework: framework,
 		Platform:  projectCfg.Platform,
 	})
-	spinner.Stop()
+	ui.Spacer()
 	if err != nil {
+		ui.Error("Build failed")
 		return fmt.Errorf("build failed: %w", err)
 	}
-	ui.Success("Image built")
+	ui.Success("Image built successfully")
 
 	// Push image
-	fmt.Println()
-	spinner = ui.NewSpinner("Pushing to registry...")
-	spinner.Start()
+	ui.Info("Pushing to registry...")
+	ui.Spacer()
 	err = docker.Push(&docker.PushOptions{
 		ImageName: projectCfg.DockerImage,
 		Tag:       tag,
@@ -499,20 +557,22 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 		Username:  globalCfg.DockerRegistry.Username,
 		Password:  globalCfg.DockerRegistry.Password,
 	})
-	spinner.Stop()
+	ui.Spacer()
 	if err != nil {
+		ui.Error("Push failed")
 		return fmt.Errorf("push failed: %w", err)
 	}
-	ui.Success("Image pushed")
+	ui.Success("Image pushed successfully")
 
 	// Create or update Coolify app
+	ui.Spacer()
+	ui.Divider()
+	ui.Bold("Coolify Deployment")
+	ui.Spacer()
+
 	appUUID, exists := projectCfg.AppUUIDs[env]
 	if !exists {
 		// Create new app
-		fmt.Println()
-		spinner = ui.NewSpinner("Creating Coolify application...")
-		spinner.Start()
-
 		envUUID := projectCfg.PreviewEnvUUID
 		if env == config.EnvProduction {
 			envUUID = projectCfg.ProdEnvUUID
@@ -523,69 +583,94 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 			port = config.DefaultPort
 		}
 
-		resp, err := client.CreateDockerImageApp(&api.CreateDockerImageAppRequest{
-			ProjectUUID:             projectCfg.ProjectUUID,
-			ServerUUID:              projectCfg.ServerUUID,
-			EnvironmentUUID:         envUUID,
-			Name:                    fmt.Sprintf("%s-%s", projectCfg.Name, env),
-			DockerRegistryImageName: projectCfg.DockerImage,
-			DockerRegistryImageTag:  tag,
-			PortsExposes:            port,
-			InstantDeploy:           true,
+		err := ui.WithSpinner("Creating application", func() error {
+			resp, err := client.CreateDockerImageApp(&api.CreateDockerImageAppRequest{
+				ProjectUUID:             projectCfg.ProjectUUID,
+				ServerUUID:              projectCfg.ServerUUID,
+				EnvironmentUUID:         envUUID,
+				Name:                    fmt.Sprintf("%s-%s", projectCfg.Name, env),
+				DockerRegistryImageName: projectCfg.DockerImage,
+				DockerRegistryImageTag:  tag,
+				PortsExposes:            port,
+				InstantDeploy:           true,
+			})
+			if err != nil {
+				return err
+			}
+			appUUID = resp.UUID
+			projectCfg.AppUUIDs[env] = appUUID
+			return config.SaveProject(projectCfg)
 		})
-		spinner.Stop()
 		if err != nil {
-			return fmt.Errorf("failed to create app: %w", err)
+			return fmt.Errorf("failed to create application: %w", err)
 		}
-		appUUID = resp.UUID
-		projectCfg.AppUUIDs[env] = appUUID
-		config.SaveProject(projectCfg)
-		ui.Success("Application created and deploying")
 	} else {
 		// Update existing app and trigger deploy
-		fmt.Println()
-		spinner = ui.NewSpinner("Updating application...")
-		spinner.Start()
-
-		err := client.UpdateApplication(appUUID, map[string]interface{}{
-			"docker_registry_image_tag": tag,
+		err := ui.WithSpinner("Triggering deployment", func() error {
+			err := client.UpdateApplication(appUUID, map[string]interface{}{
+				"docker_registry_image_tag": tag,
+			})
+			if err != nil {
+				return err
+			}
+			_, err = client.Deploy(appUUID, false)
+			return err
 		})
 		if err != nil {
-			spinner.Stop()
-			return fmt.Errorf("failed to update app: %w", err)
+			return fmt.Errorf("failed to deploy: %w", err)
 		}
-
-		_, err = client.Deploy(appUUID, false)
-		spinner.Stop()
-		if err != nil {
-			return fmt.Errorf("failed to trigger deploy: %w", err)
-		}
-		ui.Success("Deployment triggered")
 	}
 
 	// Watch deployment progress
+	ui.Spacer()
+	ui.Divider()
+	ui.Bold("Deployment Progress")
+	ui.Spacer()
+
 	success := watchDeployment(client, appUUID)
 
-	// Get app info for URL
-	app, err := client.GetApplication(appUUID)
-	if err == nil && app.FQDN != "" {
-		fmt.Println()
-		fmt.Printf("Deployed to: %s\n", app.FQDN)
-	}
+	ui.Spacer()
+	ui.Divider()
 
 	if !success {
+		ui.Error("Deployment failed")
+		ui.Spacer()
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s logs' to view deployment logs", execName()),
+			"Check the Coolify dashboard for more details",
+		})
 		return fmt.Errorf("deployment failed")
 	}
+
+	// Get app info for URL
+	ui.Success("Deployment complete")
+	ui.Spacer()
+
+	app, err := client.GetApplication(appUUID)
+	if err == nil && app.FQDN != "" {
+		ui.KeyValue("URL", ui.InfoStyle.Render(app.FQDN))
+	}
+
+	ui.Spacer()
 	return nil
 }
 
 func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *config.ProjectConfig, env string) error {
 	ghClient := git.NewGitHubClient(globalCfg.GitHubToken)
 
+	ui.Divider()
+	ui.Bold("Git Deployment")
+	ui.Spacer()
+
 	// Get GitHub username
-	user, err := ghClient.GetUser()
+	var user *git.User
+	err := ui.WithSpinner("Checking GitHub connection", func() error {
+		var err error
+		user, err = ghClient.GetUser()
+		return err
+	})
 	if err != nil {
-		return fmt.Errorf("failed to get GitHub user: %w", err)
+		return fmt.Errorf("failed to connect to GitHub: %w", err)
 	}
 
 	repoName := projectCfg.GitHubRepo
@@ -593,9 +678,9 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 
 	// Check if repo exists, create if not
 	if !ghClient.RepoExists(user.Login, repoName) {
-		fmt.Println()
-		fmt.Println("GitHub Repository Setup:")
-		fmt.Println(strings.Repeat("-", 40))
+		ui.Spacer()
+		ui.Bold("GitHub Repository Setup")
+		ui.Spacer()
 
 		// Ask for repo name
 		repoName, err = ui.InputWithDefault("Repository name:", repoName)
@@ -615,49 +700,53 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 		projectCfg.GitHubPrivate = isPrivate
 
 		// Show confirmation
-		fmt.Println()
-		fmt.Println("Repository details:")
-		fmt.Printf("  Name:       %s\n", fullRepoName)
-		fmt.Printf("  Visibility: %s\n", visibility)
-		fmt.Printf("  Branch:     main\n")
-		fmt.Println()
+		ui.Spacer()
+		ui.KeyValue("Repository", fullRepoName)
+		ui.KeyValue("Visibility", visibility)
+		ui.KeyValue("Branch", "main")
+		ui.Spacer()
 
-		proceed, err := ui.Confirm("Create this repository?")
+		proceed, err := ui.Confirm("Create repository?")
 		if err != nil {
 			return err
 		}
 		if !proceed {
-			return fmt.Errorf("cancelled by user")
+			ui.Dim("Cancelled")
+			return fmt.Errorf("cancelled")
 		}
 
 		// Create README if it doesn't exist
+		ui.Spacer()
 		if err := createReadmeIfMissing(projectCfg); err != nil {
-			ui.Warn(fmt.Sprintf("Could not create README: %v", err))
+			ui.Dim(fmt.Sprintf("Could not create README: %v", err))
 		}
 
 		// Create the repo
-		spinner := ui.NewSpinner("Creating GitHub repository...")
-		spinner.Start()
-		_, err = ghClient.CreateRepo(repoName, fmt.Sprintf("Deployment repo for %s", projectCfg.Name), isPrivate)
-		spinner.Stop()
+		err = ui.WithSpinner("Creating GitHub repository", func() error {
+			_, err := ghClient.CreateRepo(repoName, fmt.Sprintf("Deployment repository for %s", projectCfg.Name), isPrivate)
+			return err
+		})
 		if err != nil {
-			return fmt.Errorf("failed to create repo: %w", err)
+			return fmt.Errorf("failed to create repository: %w", err)
 		}
-		ui.Success(fmt.Sprintf("Created repository: %s", fullRepoName))
 
 		// Save updated config
 		config.SaveProject(projectCfg)
 	}
 
 	// Initialize git if needed
+	ui.Spacer()
+	ui.Divider()
+	ui.Bold("Pushing Code")
+	ui.Spacer()
+
 	if !git.IsRepo(".") {
-		spinner := ui.NewSpinner("Initializing git...")
-		spinner.Start()
-		if err := git.Init("."); err != nil {
-			spinner.Stop()
-			return fmt.Errorf("failed to init git: %w", err)
+		err := ui.WithSpinner("Initializing git repository", func() error {
+			return git.Init(".")
+		})
+		if err != nil {
+			return fmt.Errorf("failed to initialize git: %w", err)
 		}
-		spinner.Stop()
 	}
 
 	// Set remote
@@ -667,12 +756,6 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 	}
 
 	// Commit and push
-	fmt.Println()
-	spinner := ui.NewSpinner("Committing and pushing...")
-	spinner.Start()
-	if err := git.AutoCommit("."); err != nil {
-		// Ignore if nothing to commit
-	}
 	branch := projectCfg.Branch
 	if branch == "" {
 		branch, _ = git.GetCurrentBranch(".")
@@ -680,27 +763,51 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 			branch = config.DefaultBranch
 		}
 	}
-	if err := git.Push(".", "origin", branch); err != nil {
-		spinner.Stop()
-		return fmt.Errorf("failed to push: %w", err)
+
+	err = ui.WithSpinner(fmt.Sprintf("Pushing to %s", fullRepoName), func() error {
+		if err := git.AutoCommit("."); err != nil {
+			// Ignore if nothing to commit
+		}
+		return git.Push(".", "origin", branch)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to push code: %w", err)
 	}
-	spinner.Stop()
-	ui.Success("Code pushed to GitHub")
 
 	// Get GitHub App for Coolify to use as git source
-	githubApps, err := client.ListGitHubApps()
+	ui.Spacer()
+	ui.Divider()
+	ui.Bold("Coolify Configuration")
+	ui.Spacer()
+
+	var githubApps []api.GitHubApp
+	err = ui.WithSpinner("Loading GitHub Apps", func() error {
+		var err error
+		githubApps, err = client.ListGitHubApps()
+		return err
+	})
 	if err != nil {
-		return fmt.Errorf("failed to list GitHub Apps: %w (configure a GitHub App in Coolify Sources)", err)
+		ui.Error("Failed to load GitHub Apps")
+		ui.Spacer()
+		ui.Dim("Configure a GitHub App in Coolify: Sources → GitHub App")
+		return fmt.Errorf("failed to list GitHub Apps: %w", err)
 	}
 	if len(githubApps) == 0 {
-		return fmt.Errorf("no GitHub Apps configured in Coolify - add one in Sources > GitHub App")
+		ui.Error("No GitHub Apps configured in Coolify")
+		ui.Spacer()
+		ui.Dim("Add a GitHub App in Coolify: Sources → GitHub App")
+		return fmt.Errorf("no GitHub Apps configured")
 	}
 
 	// Select GitHub App (prompt if multiple)
 	var githubAppUUID string
 	if len(githubApps) == 1 {
 		githubAppUUID = githubApps[0].UUID
+		ui.Spacer()
+		ui.Info(fmt.Sprintf("Using GitHub App: %s", githubApps[0].Name))
+		ui.Spacer()
 	} else {
+		ui.Spacer()
 		appOptions := make(map[string]string)
 		for _, app := range githubApps {
 			displayName := app.Name
@@ -713,15 +820,12 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 		if err != nil {
 			return err
 		}
+		ui.Spacer()
 	}
 
 	// Create or deploy Coolify app
 	appUUID, exists := projectCfg.AppUUIDs[env]
 	if !exists {
-		fmt.Println()
-		spinner = ui.NewSpinner("Creating Coolify application...")
-		spinner.Start()
-
 		envUUID := projectCfg.PreviewEnvUUID
 		if env == config.EnvProduction {
 			envUUID = projectCfg.ProdEnvUUID
@@ -744,69 +848,87 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 		healthCheckEnabled := isStatic
 		healthCheckPath := "/"
 
-		resp, err := client.CreatePrivateGitHubApp(&api.CreatePrivateGitHubAppRequest{
-			ProjectUUID:        projectCfg.ProjectUUID,
-			ServerUUID:         projectCfg.ServerUUID,
-			EnvironmentUUID:    envUUID,
-			GitHubAppUUID:      githubAppUUID,
-			GitRepository:      fullRepoName, // Just "owner/repo" format for GitHub App
-			GitBranch:          branch,
-			Name:               fmt.Sprintf("%s-%s", projectCfg.Name, env),
-			BuildPack:          buildPack,
-			IsStatic:           isStatic,
-			Domains:            projectCfg.Domain,
-			InstallCommand:     projectCfg.InstallCommand,
-			BuildCommand:       projectCfg.BuildCommand,
-			StartCommand:       projectCfg.StartCommand,
-			PublishDirectory:   projectCfg.PublishDir,
-			PortsExposes:       port,
-			HealthCheckEnabled: healthCheckEnabled,
-			HealthCheckPath:    healthCheckPath,
-			InstantDeploy:      true,
+		err := ui.WithSpinner("Creating Coolify application", func() error {
+			resp, err := client.CreatePrivateGitHubApp(&api.CreatePrivateGitHubAppRequest{
+				ProjectUUID:        projectCfg.ProjectUUID,
+				ServerUUID:         projectCfg.ServerUUID,
+				EnvironmentUUID:    envUUID,
+				GitHubAppUUID:      githubAppUUID,
+				GitRepository:      fullRepoName,
+				GitBranch:          branch,
+				Name:               fmt.Sprintf("%s-%s", projectCfg.Name, env),
+				BuildPack:          buildPack,
+				IsStatic:           isStatic,
+				Domains:            projectCfg.Domain,
+				InstallCommand:     projectCfg.InstallCommand,
+				BuildCommand:       projectCfg.BuildCommand,
+				StartCommand:       projectCfg.StartCommand,
+				PublishDirectory:   projectCfg.PublishDir,
+				PortsExposes:       port,
+				HealthCheckEnabled: healthCheckEnabled,
+				HealthCheckPath:    healthCheckPath,
+				InstantDeploy:      true,
+			})
+			if err != nil {
+				return err
+			}
+			appUUID = resp.UUID
+			projectCfg.AppUUIDs[env] = appUUID
+			return config.SaveProject(projectCfg)
 		})
-		spinner.Stop()
 		if err != nil {
-			return fmt.Errorf("failed to create app: %w", err)
+			return fmt.Errorf("failed to create application: %w", err)
 		}
-		appUUID = resp.UUID
-		projectCfg.AppUUIDs[env] = appUUID
-		config.SaveProject(projectCfg)
-		ui.Success("Application created and deploying")
 	} else {
 		// Trigger deploy for existing app
-		fmt.Println()
-		spinner = ui.NewSpinner("Triggering deployment...")
-		spinner.Start()
-		_, err := client.Deploy(appUUID, false)
-		spinner.Stop()
+		err := ui.WithSpinner("Triggering deployment", func() error {
+			_, err := client.Deploy(appUUID, false)
+			return err
+		})
 		if err != nil {
-			return fmt.Errorf("failed to trigger deploy: %w", err)
+			return fmt.Errorf("failed to trigger deployment: %w", err)
 		}
-		ui.Success("Deployment triggered")
 	}
 
 	// Watch deployment progress
+	ui.Spacer()
+	ui.Divider()
+	ui.Bold("Deployment Progress")
+	ui.Spacer()
+
 	success := watchDeployment(client, appUUID)
 
-	// Get app info for URL
-	app, err := client.GetApplication(appUUID)
-	if err == nil && app.FQDN != "" {
-		fmt.Println()
-		fmt.Printf("Deployed to: %s\n", app.FQDN)
-	}
+	ui.Spacer()
+	ui.Divider()
 
 	if !success {
+		ui.Error("Deployment failed")
+		ui.Spacer()
+		ui.NextSteps([]string{
+			fmt.Sprintf("Run '%s logs' to view deployment logs", execName()),
+			"Check the Coolify dashboard for more details",
+		})
 		return fmt.Errorf("deployment failed")
 	}
+
+	// Get app info for URL
+	ui.Success("Deployment complete")
+	ui.Spacer()
+
+	app, err := client.GetApplication(appUUID)
+	if err == nil && app.FQDN != "" {
+		ui.KeyValue("URL", ui.InfoStyle.Render(app.FQDN))
+	}
+
+	ui.Spacer()
 	return nil
 }
 
 // watchDeployment polls the deployment status and displays build logs
 // Returns true if deployment succeeded, false if it failed
 func watchDeployment(client *api.Client, appUUID string) bool {
-	fmt.Println()
-	fmt.Println("Build logs:")
-	fmt.Println(strings.Repeat("-", 50))
+	ui.Dim("Build logs:")
+	ui.Divider()
 
 	debug := os.Getenv("CDP_DEBUG") != ""
 
@@ -844,15 +966,12 @@ func watchDeployment(client *api.Client, appUUID string) bool {
 			emptyCount++
 			// If we had a deployment but now it's gone, check application status
 			if hadDeployment && emptyCount >= 3 {
-				fmt.Println()
-				fmt.Println(strings.Repeat("-", 50))
 				// Check application status to determine if deployment succeeded
 				app, err := client.GetApplication(appUUID)
 				if err != nil {
 					if debug {
 						fmt.Printf("[DEBUG] GetApplication error: %v\n", err)
 					}
-					ui.Warn("Deployment finished (could not verify status)")
 					return true // Assume success if we can't check
 				}
 				appStatus := strings.ToLower(app.Status)
@@ -861,21 +980,18 @@ func watchDeployment(client *api.Client, appUUID string) bool {
 				}
 				// "running" means success, other statuses may indicate issues
 				if appStatus == "running" {
-					ui.Success("Deployment completed")
 					return true
 				} else if appStatus == "exited" || appStatus == "error" || appStatus == "failed" {
-					ui.Error(fmt.Sprintf("Deployment failed (app status: %s)", app.Status))
 					return false
 				}
 				// Other statuses (starting, etc.) - assume success
-				ui.Success("Deployment completed")
 				return true
 			}
 			// If we never saw a deployment and waited a while, give up
 			if !hadDeployment && attempt >= 15 {
-				fmt.Println()
-				fmt.Println(strings.Repeat("-", 50))
-				ui.Warn("No deployment found")
+				if debug {
+					fmt.Printf("[DEBUG] No deployment found after %d attempts\n", attempt)
+				}
 				return false
 			}
 			if debug {
@@ -936,21 +1052,9 @@ func watchDeployment(client *api.Client, appUUID string) bool {
 			status := strings.ToLower(detail.Status)
 
 			if status == "finished" {
-				fmt.Println()
-				fmt.Println(strings.Repeat("-", 50))
-				// Deployment finished - check app status to confirm success
-				app, err := client.GetApplication(appUUID)
-				if err == nil && strings.ToLower(app.Status) == "running" {
-					ui.Success("Deployment completed")
-					return true
-				}
-				ui.Success("Deployment completed")
 				return true
 			}
 			if status == "failed" || status == "error" || status == "cancelled" {
-				fmt.Println()
-				fmt.Println(strings.Repeat("-", 50))
-				ui.Error(fmt.Sprintf("Deployment %s", status))
 				return false
 			}
 			// "running", "in_progress", "queued" etc. mean still deploying - keep waiting
@@ -959,15 +1063,9 @@ func watchDeployment(client *api.Client, appUUID string) bool {
 		// Fallback: check status from deployment list
 		status := strings.ToLower(latest.Status)
 		if status == "finished" {
-			fmt.Println()
-			fmt.Println(strings.Repeat("-", 50))
-			ui.Success("Deployment completed")
 			return true
 		}
 		if status == "failed" || status == "error" || status == "cancelled" {
-			fmt.Println()
-			fmt.Println(strings.Repeat("-", 50))
-			ui.Error(fmt.Sprintf("Deployment %s", status))
 			return false
 		}
 
@@ -975,9 +1073,7 @@ func watchDeployment(client *api.Client, appUUID string) bool {
 		attempt++
 	}
 
-	fmt.Println()
-	fmt.Println(strings.Repeat("-", 50))
-	ui.Warn("Deployment still in progress (timed out waiting)")
+	// Timed out
 	return false
 }
 

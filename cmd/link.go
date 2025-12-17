@@ -27,38 +27,54 @@ func runLink(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	ui.Section("Link Project")
+
 	// Check if already linked
 	if config.ProjectExists() {
-		overwrite, err := ui.Confirm("Project is already linked. Overwrite?")
+		ui.Warning("This directory is already linked to a project")
+		ui.Spacer()
+		overwrite, err := ui.Confirm("Overwrite existing configuration?")
 		if err != nil {
 			return err
 		}
 		if !overwrite {
+			ui.Dim("Cancelled")
 			return nil
 		}
+		ui.Spacer()
 	}
 
 	globalCfg, err := config.LoadGlobal()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
 	// List applications
-	spinner := ui.NewSpinner("Loading applications...")
-	spinner.Start()
-	apps, err := client.ListApplications()
-	spinner.Stop()
+	var apps []api.Application
+	err = ui.WithSpinner("Loading applications", func() error {
+		var err error
+		apps, err = client.ListApplications()
+		return err
+	})
+
 	if err != nil {
 		return fmt.Errorf("failed to list applications: %w", err)
 	}
 
 	if len(apps) == 0 {
-		return fmt.Errorf("no applications found. Create one in Coolify first or run '%s' to deploy", execName())
+		ui.Spacer()
+		ui.Warning("No applications found in Coolify")
+		ui.NextSteps([]string{
+			"Create an application in Coolify first, or",
+			fmt.Sprintf("Run '%s' to create and deploy a new app", execName()),
+		})
+		return fmt.Errorf("no applications found")
 	}
 
 	// Select application
+	ui.Spacer()
 	appOptions := make(map[string]string)
 	appMap := make(map[string]api.Application)
 	for _, app := range apps {
@@ -70,7 +86,7 @@ func runLink(cmd *cobra.Command, args []string) error {
 		appMap[app.UUID] = app
 	}
 
-	appUUID, err := ui.SelectWithKeys("Select application:", appOptions)
+	appUUID, err := ui.SelectWithKeys("Select application to link:", appOptions)
 	if err != nil {
 		return err
 	}
@@ -93,7 +109,7 @@ func runLink(cmd *cobra.Command, args []string) error {
 	projectCfg := &config.ProjectConfig{
 		Name:           getWorkingDirName(),
 		DeployMethod:   deployMethod,
-		ServerUUID:     "", // We don't have this from the app listing
+		ServerUUID:     "",
 		AppUUIDs:       map[string]string{env: appUUID},
 		Framework:      app.BuildPack,
 		InstallCommand: app.InstallCommand,
@@ -109,11 +125,20 @@ func runLink(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := config.SaveProject(projectCfg); err != nil {
-		return fmt.Errorf("failed to save project config: %w", err)
+		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	ui.Success(fmt.Sprintf("Linked to %s", app.Name))
-	ui.Dim(fmt.Sprintf("Run '%s' to deploy", execName()))
+	ui.Spacer()
+	ui.Success("Project linked successfully")
+	ui.Spacer()
+	ui.KeyValue("Application", app.Name)
+	ui.KeyValue("Environment", env)
+	ui.KeyValue("Deploy method", deployMethod)
+
+	ui.NextSteps([]string{
+		fmt.Sprintf("Run '%s' to deploy to this application", execName()),
+		fmt.Sprintf("Run '%s ls' to view deployment status", execName()),
+	})
 
 	return nil
 }

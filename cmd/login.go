@@ -14,16 +14,17 @@ import (
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Log in to Coolify",
-	Long: `Authenticate with your Coolify instance.
+	Short: "Authenticate with Coolify",
+	Long: `Authenticate with your Coolify instance and optionally set up 
+GitHub and Docker registry integrations.
 
-You'll need:
-- Your Coolify URL (e.g., https://coolify.example.com)
-- An API token from Keys & Tokens in your Coolify dashboard
+Required:
+  • Coolify URL
+  • Coolify API token (from Settings → API Tokens)
 
-Optionally, you can also set up:
-- GitHub token for git-based deployments
-- Docker registry credentials for docker-based deployments`,
+Optional:
+  • GitHub personal access token (for git-based deployments)
+  • Docker registry credentials (for container-based deployments)`,
 	RunE: runLogin,
 }
 
@@ -38,10 +39,9 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		cfg = &config.GlobalConfig{}
 	}
 
-	fmt.Println("Log in to Coolify")
-	fmt.Println()
+	ui.Section("Coolify Authentication")
 
-	// Get Coolify URL
+	// Step 1: Coolify credentials
 	coolifyURL, err := ui.Input("Coolify URL", "https://coolify.example.com")
 	if err != nil {
 		return err
@@ -51,9 +51,8 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("Coolify URL is required")
 	}
 
-	// Get API token
-	fmt.Println()
-	ui.Dim("Get your API token from Keys & Tokens in your Coolify dashboard")
+	ui.Spacer()
+	ui.Dim("→ Get your API token from Settings → API Tokens in Coolify")
 	token, err := ui.Password("API Token")
 	if err != nil {
 		return err
@@ -63,63 +62,78 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate credentials
-	fmt.Println()
-	spinner := ui.NewSpinner("Verifying credentials...")
-	spinner.Start()
-
-	client := api.NewClient(coolifyURL, token)
-	if err := client.HealthCheck(); err != nil {
-		spinner.Stop()
-		return fmt.Errorf("failed to connect to Coolify: %w", err)
+	ui.Spacer()
+	err = ui.WithSpinner("Connecting to Coolify", func() error {
+		client := api.NewClient(coolifyURL, token)
+		return client.HealthCheck()
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
 	}
-	spinner.Stop()
-	ui.Success("Connected to Coolify")
 
 	// Save base credentials
 	cfg.CoolifyURL = coolifyURL
 	cfg.CoolifyToken = token
 
-	// Ask about GitHub token for git-based deployments
-	fmt.Println()
-	setupGitHub, err := ui.Confirm("Set up GitHub for git-based deployments?")
+	// Step 2: Optional GitHub setup
+	ui.Section("GitHub Integration (Optional)")
+	ui.Dim("Enable git-based deployments with automatic repository management")
+	ui.Spacer()
+
+	setupGitHub, err := ui.Confirm("Configure GitHub?")
 	if err != nil {
 		return err
 	}
+
 	if setupGitHub {
-		fmt.Println()
-		ui.Dim("Create a token at https://github.com/settings/tokens with 'repo' scope")
+		ui.Spacer()
+		ui.Dim("→ Create a token at https://github.com/settings/tokens")
+		ui.Dim("  Required scope: repo")
+		ui.Spacer()
+
 		githubToken, err := ui.Password("GitHub Token")
 		if err != nil {
 			return err
 		}
 		if githubToken != "" {
 			// Verify GitHub token
-			spinner = ui.NewSpinner("Verifying GitHub token...")
-			spinner.Start()
-			ghClient := git.NewGitHubClient(githubToken)
-			user, err := ghClient.GetUser()
-			spinner.Stop()
+			var username string
+			err = ui.WithSpinner("Verifying GitHub token", func() error {
+				ghClient := git.NewGitHubClient(githubToken)
+				user, err := ghClient.GetUser()
+				if err != nil {
+					return err
+				}
+				username = user.Login
+				return nil
+			})
+
 			if err != nil {
-				ui.Warn("GitHub token verification failed")
-				ui.Dim(fmt.Sprintf("Error: %v", err))
+				ui.Warning("GitHub verification failed: " + err.Error())
 			} else {
 				cfg.GitHubToken = githubToken
-				ui.Success(fmt.Sprintf("GitHub authenticated as %s", user.Login))
+				ui.Spacer()
+				ui.KeyValue("GitHub user", username)
 			}
 		}
 	}
 
-	// Ask about Docker registry for docker-based deployments
-	fmt.Println()
-	setupDocker, err := ui.Confirm("Set up Docker registry for docker-based deployments?")
+	// Step 3: Optional Docker registry setup
+	ui.Section("Docker Registry (Optional)")
+	ui.Dim("Enable container-based deployments with private registries")
+	ui.Spacer()
+
+	setupDocker, err := ui.Confirm("Configure Docker registry?")
 	if err != nil {
 		return err
 	}
+
 	if setupDocker {
 		if !docker.IsDockerAvailable() {
-			ui.Warn("Docker is not running - start Docker Desktop first")
+			ui.Warning("Docker is not running")
+			ui.Dim("Start Docker Desktop and run 'cdp login' again to configure registry")
 		} else {
-			fmt.Println()
+			ui.Spacer()
 			registryURL, err := ui.InputWithDefault("Registry URL", "ghcr.io")
 			if err != nil {
 				return err
@@ -134,40 +148,27 @@ func runLogin(cmd *cobra.Command, args []string) error {
 			}
 
 			if registryURL != "" && username != "" && password != "" {
-				// Verify Docker registry locally
-				fmt.Println()
-				spinner = ui.NewSpinner("Verifying Docker registry credentials...")
-				spinner.Start()
-				err := docker.VerifyLogin(registryURL, username, password)
-				spinner.Stop()
-				if err != nil {
-					ui.Warn("Docker registry verification failed")
-					ui.Dim(fmt.Sprintf("Error: %v", err))
-				} else {
-					ui.Success("Docker registry verified locally")
+				ui.Spacer()
+				err := ui.WithSpinner("Verifying registry credentials", func() error {
+					return docker.VerifyLogin(registryURL, username, password)
+				})
 
+				if err != nil {
+					ui.Warning("Registry verification failed: " + err.Error())
+				} else {
 					cfg.DockerRegistry = &config.DockerRegistry{
 						URL:      registryURL,
 						Username: username,
 						Password: password,
 					}
 
-					// Show Coolify server setup guide
-					fmt.Println()
-					fmt.Println(strings.Repeat("=", 50))
-					fmt.Println("IMPORTANT: Coolify Server Setup")
-					fmt.Println(strings.Repeat("=", 50))
-					fmt.Println()
-					fmt.Println("For Coolify to pull from your private registry,")
-					fmt.Println("run this command ON YOUR COOLIFY SERVER:")
-					fmt.Println()
-					fmt.Printf("  echo '%s' | docker login %s -u %s --password-stdin\n", password, registryURL, username)
-					fmt.Println()
-					fmt.Println("Steps:")
-					fmt.Println("  1. SSH into your Coolify server")
-					fmt.Println("  2. Run the command above")
-					fmt.Println("  3. You should see 'Login Succeeded'")
-					fmt.Println(strings.Repeat("=", 50))
+					ui.Spacer()
+					ui.Warning("Server Setup Required")
+					ui.Spacer()
+					ui.Print("To enable Coolify to pull from your registry, run this on your Coolify server:")
+					ui.Spacer()
+					ui.Code(fmt.Sprintf("echo '%s' | docker login %s -u %s --password-stdin", password, registryURL, username))
+					ui.Spacer()
 				}
 			}
 		}
@@ -175,12 +176,26 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Save config
 	if err := config.SaveGlobal(cfg); err != nil {
-		return fmt.Errorf("failed to save credentials: %w", err)
+		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	fmt.Println()
-	ui.Success(fmt.Sprintf("Logged in to %s", coolifyURL))
-	ui.Dim(fmt.Sprintf("Run '%s' in any project directory to deploy", execName()))
+	// Show summary
+	ui.Divider()
+	ui.Success("Authentication configured")
+	ui.Spacer()
+	ui.KeyValue("Coolify URL", coolifyURL)
+	
+	if cfg.GitHubToken != "" {
+		ui.KeyValue("GitHub", "configured")
+	}
+	if cfg.DockerRegistry != nil {
+		ui.KeyValue("Docker registry", cfg.DockerRegistry.URL)
+	}
+
+	ui.NextSteps([]string{
+		fmt.Sprintf("Run '%s' in a project directory to deploy", execName()),
+		fmt.Sprintf("Run '%s health' to verify all connections", execName()),
+	})
 
 	return nil
 }

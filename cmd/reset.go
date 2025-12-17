@@ -43,7 +43,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 
 	// Show what will be deleted
 	fmt.Println()
-	ui.Warn("This will DELETE the following resources:")
+	ui.Warning("This will DELETE the following resources:")
 	fmt.Println()
 	if projectCfg.GitHubRepo != "" {
 		fmt.Printf("  GitHub repo: %s\n", projectCfg.GitHubRepo)
@@ -86,7 +86,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 		err := client.DeleteApplication(uuid)
 		spinner.Stop()
 		if err != nil {
-			ui.Warn(fmt.Sprintf("Failed to delete app %s: %v", env, err))
+			ui.Warning(fmt.Sprintf("Failed to delete app %s: %v", env, err))
 		} else {
 			ui.Success(fmt.Sprintf("Deleted Coolify app (%s)", env))
 			deletedApps = true
@@ -108,7 +108,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 		err := client.DeleteProject(projectCfg.ProjectUUID)
 		spinner.Stop()
 		if err != nil {
-			ui.Warn(fmt.Sprintf("Failed to delete project: %v", err))
+			ui.Warning(fmt.Sprintf("Failed to delete project: %v", err))
 		} else {
 			ui.Success("Deleted Coolify project")
 		}
@@ -121,14 +121,14 @@ func runReset(cmd *cobra.Command, args []string) error {
 		// Get current user to build full repo name
 		user, err := ghClient.GetUser()
 		if err != nil {
-			ui.Warn(fmt.Sprintf("Failed to get GitHub user: %v", err))
+			ui.Warning(fmt.Sprintf("Failed to get GitHub user: %v", err))
 		} else {
 			spinner := ui.NewSpinner("Deleting GitHub repository...")
 			spinner.Start()
 			err = ghClient.DeleteRepo(user.Login, projectCfg.GitHubRepo)
 			spinner.Stop()
 			if err != nil {
-				ui.Warn(fmt.Sprintf("Failed to delete repo: %v", err))
+				ui.Warning(fmt.Sprintf("Failed to delete repo: %v", err))
 			} else {
 				ui.Success(fmt.Sprintf("Deleted GitHub repo: %s/%s", user.Login, projectCfg.GitHubRepo))
 			}
@@ -141,7 +141,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 	err = config.DeleteProject()
 	spinner.Stop()
 	if err != nil {
-		ui.Warn(fmt.Sprintf("Failed to delete cdp.json: %v", err))
+		ui.Warning(fmt.Sprintf("Failed to delete cdp.json: %v", err))
 	} else {
 		ui.Success("Removed cdp.json")
 	}

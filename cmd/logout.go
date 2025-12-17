@@ -18,20 +18,26 @@ func init() {
 }
 
 func runLogout(cmd *cobra.Command, args []string) error {
-	confirm, err := ui.Confirm("Are you sure you want to log out?")
+	ui.Section("Logout")
+	
+	confirm, err := ui.Confirm("Remove all stored credentials?")
 	if err != nil {
 		return err
 	}
 	if !confirm {
+		ui.Dim("Cancelled")
 		return nil
 	}
 
+	ui.Spacer()
 	if err := config.Clear(); err != nil {
 		// Ignore error if file doesn't exist
-		ui.Warn("No credentials found")
+		ui.Warning("No credentials found")
 		return nil
 	}
 
 	ui.Success("Logged out successfully")
+	ui.Spacer()
+	ui.Dim("Run 'cdp login' to authenticate again")
 	return nil
 }

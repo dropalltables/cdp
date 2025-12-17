@@ -48,7 +48,7 @@ func Build(opts *BuildOptions) error {
 	}
 
 	imageTag := fmt.Sprintf("%s:%s", opts.ImageName, opts.Tag)
-	args := []string{"build", "--platform", platform, "-t", imageTag, "-f", dockerfilePath, opts.Dir}
+	args := []string{"build", "--progress=plain", "--platform", platform, "-t", imageTag, "-f", dockerfilePath, opts.Dir}
 
 	cmd := exec.Command("docker", args...)
 	cmd.Dir = opts.Dir
