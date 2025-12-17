@@ -73,7 +73,7 @@ User interface:
    - Deployment method (docker/git)
    - Framework detection results
    - Build commands and port
-   - Application UUIDs per environment (preview/production)
+   - Single application UUID (supports both production and preview deployments)
 
 ### Deployment Methods
 
@@ -81,13 +81,16 @@ User interface:
    - Builds Docker image locally (linux/amd64 for server compatibility)
    - Pushes to configured registry
    - Creates/updates Coolify Docker image application
+   - Manual deploys always go to production
    - Requires Docker registry configuration locally AND on Coolify server
 
 2. **Git-based** (recommended):
    - Creates/manages GitHub repository automatically
    - Supports public/private repos
    - Commits and pushes code
-   - Creates/updates Coolify public application
+   - Creates/updates Coolify application with preview deployments enabled
+   - Manual deploys go to production
+   - Preview deployments are created automatically by Coolify from GitHub PRs
    - Requires GitHub token with `repo` scope
 
 ### First-Time Setup Flow
@@ -98,7 +101,7 @@ When `cdp.json` doesn't exist:
 3. Choose deployment method
 4. Select server
 5. Select or create project
-6. Create environments (preview/production)
+6. Create production environment
 7. Save configuration
 
 ## Common Tasks
@@ -145,11 +148,17 @@ Always use `internal/ui` helpers:
 - Project config: `cdp.json` (project-specific, should be gitignored)
 - Never commit credentials or tokens
 
-### Environment Handling
+### Deployment Architecture
 
-- Default: preview environment
-- Use `--prod` flag for production
-- Environment UUIDs stored in project config
+**Single Application Model:**
+- Creates one Coolify application per project with preview deployments enabled
+- Manual `cdp` deploys always target production (PR number = 0)
+- Preview deployments are created automatically by Coolify from GitHub Pull Requests via webhooks
+- Environment variables can be scoped to production or preview using `--preview` flag in `cdp env` commands
+
+**Legacy Migration:**
+- Old configs with separate preview/production apps are automatically migrated
+- Uses the production app as the main app and clears legacy fields
 
 ### Testing
 

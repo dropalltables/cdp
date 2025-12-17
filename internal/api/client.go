@@ -101,7 +101,7 @@ func (c *Client) request(method, path string, body interface{}, result interface
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
-	if debug && strings.Contains(path, "deploy") {
+	if debug {
 		// Truncate for readability
 		body := string(respBody)
 		if len(body) > 500 {

@@ -14,8 +14,8 @@ var (
 	// Version is set at build time
 	Version = "dev"
 
-	// Flags
-	prodFlag bool
+	// Flags for env command
+	previewFlag bool
 )
 
 var rootCmd = &cobra.Command{
@@ -27,15 +27,13 @@ Deploy your applications with a single command - no manual setup required.
 Run 'cdp' to deploy, or 'cdp --help' for more commands.`,
 	// Running 'cdp' without subcommand triggers deploy
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runDeploy(prodFlag)
+		return runDeploy()
 	},
 	SilenceUsage:  true, // Don't show usage on errors
 	SilenceErrors: true, // We handle errors with our UI
 }
 
 func init() {
-	rootCmd.PersistentFlags().BoolVar(&prodFlag, "prod", false, "Deploy to production")
-
 	// Customize help template
 	rootCmd.SetHelpFunc(customHelp)
 }

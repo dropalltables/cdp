@@ -7,12 +7,16 @@ import (
 )
 
 // Deploy triggers a deployment for an application
-func (c *Client) Deploy(uuid string, force bool) (*DeployResponse, error) {
+// pr parameter: 0 for production, >0 for preview deployment
+func (c *Client) Deploy(uuid string, force bool, pr int) (*DeployResponse, error) {
 	params := map[string]string{
 		"uuid": uuid,
 	}
 	if force {
 		params["force"] = "true"
+	}
+	if pr > 0 {
+		params["pr"] = fmt.Sprintf("%d", pr)
 	}
 	var resp DeployResponse
 	err := c.GetWithParams("/deploy", params, &resp)

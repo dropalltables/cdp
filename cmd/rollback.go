@@ -45,18 +45,13 @@ func runRollback(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	envName := config.EnvPreview
-	if prodFlag {
-		envName = config.EnvProduction
-	}
-
-	appUUID := projectCfg.AppUUIDs[envName]
+	appUUID := projectCfg.AppUUID
 	if appUUID == "" {
-		ui.Error(fmt.Sprintf("No deployment found for %s environment", envName))
+		ui.Error("No application found")
 		ui.NextSteps([]string{
 			fmt.Sprintf("Run '%s' to deploy first", execName()),
 		})
-		return fmt.Errorf("no deployment found")
+		return fmt.Errorf("no application found")
 	}
 
 	globalCfg, err := config.LoadGlobal()
@@ -66,7 +61,7 @@ func runRollback(cmd *cobra.Command, args []string) error {
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
-	ui.Section(fmt.Sprintf("Rollback - %s", envName))
+	ui.Section("Rollback")
 
 	// List recent deployments
 	ui.Info("Fetching deployment history...")
@@ -178,7 +173,8 @@ func runRollback(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	_, err = client.Deploy(appUUID, true)
+	// Deploy with PR 0 (production)
+	_, err = client.Deploy(appUUID, true, 0)
 	if err != nil {
 		ui.Error("Failed to trigger deployment")
 		return fmt.Errorf("rollback failed: %w", err)

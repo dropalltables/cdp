@@ -51,8 +51,8 @@ func runReset(cmd *cobra.Command, args []string) error {
 	if projectCfg.ProjectUUID != "" {
 		fmt.Printf("  Coolify project UUID: %s\n", projectCfg.ProjectUUID)
 	}
-	for env, uuid := range projectCfg.AppUUIDs {
-		fmt.Printf("  Coolify app (%s): %s\n", env, uuid)
+	if projectCfg.AppUUID != "" {
+		fmt.Printf("  Coolify app: %s\n", projectCfg.AppUUID)
 	}
 	fmt.Println()
 
@@ -75,26 +75,18 @@ func runReset(cmd *cobra.Command, args []string) error {
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
-	// Delete Coolify apps first
-	deletedApps := false
-	for env, uuid := range projectCfg.AppUUIDs {
-		if uuid == "" {
-			continue
-		}
-		ui.Info(fmt.Sprintf("Deleting Coolify app (%s)...", env))
-		err := client.DeleteApplication(uuid)
+	// Delete Coolify app
+	if projectCfg.AppUUID != "" {
+		ui.Info("Deleting Coolify app...")
+		err := client.DeleteApplication(projectCfg.AppUUID)
 		if err != nil {
-			ui.Warning(fmt.Sprintf("Failed to delete app %s: %v", env, err))
+			ui.Warning(fmt.Sprintf("Failed to delete app: %v", err))
 		} else {
-			ui.Success(fmt.Sprintf("Deleted Coolify app (%s)", env))
-			deletedApps = true
+			ui.Success("Deleted Coolify app")
+			// Wait for Coolify to finish cleanup
+			ui.Info("Waiting for Coolify cleanup...")
+			time.Sleep(5 * time.Second)
 		}
-	}
-
-	// Wait for Coolify to finish cleanup
-	if deletedApps {
-		ui.Info("Waiting for Coolify cleanup...")
-		time.Sleep(5 * time.Second)
 	}
 
 	// Delete Coolify project

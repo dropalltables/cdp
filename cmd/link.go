@@ -96,22 +96,17 @@ func runLink(cmd *cobra.Command, args []string) error {
 		deployMethod = config.DeployMethodDocker
 	}
 
-	// Determine which environment to link to
-	env := config.EnvPreview
-	if prodFlag {
-		env = config.EnvProduction
-	}
-
 	// Create project config
 	projectCfg := &config.ProjectConfig{
-		Name:           getWorkingDirName(),
-		DeployMethod:   deployMethod,
-		ServerUUID:     "",
-		AppUUIDs:       map[string]string{env: appUUID},
-		Framework:      app.BuildPack,
-		InstallCommand: app.InstallCommand,
-		BuildCommand:   app.BuildCommand,
-		StartCommand:   app.StartCommand,
+		Name:            getWorkingDirName(),
+		DeployMethod:    deployMethod,
+		ServerUUID:      "",
+		AppUUID:         appUUID,
+		EnvironmentUUID: "", // Will be fetched from app if needed
+		Framework:       app.BuildPack,
+		InstallCommand:  app.InstallCommand,
+		BuildCommand:    app.BuildCommand,
+		StartCommand:    app.StartCommand,
 	}
 
 	if app.DockerRegistryName != "" {
@@ -129,7 +124,6 @@ func runLink(cmd *cobra.Command, args []string) error {
 	ui.Success("Project linked successfully")
 	ui.Spacer()
 	ui.KeyValue("Application", app.Name)
-	ui.KeyValue("Environment", env)
 	ui.KeyValue("Deploy method", deployMethod)
 
 	ui.NextSteps([]string{

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/dropalltables/cdp/internal/config"
-	"github.com/dropalltables/cdp/internal/ui"
 )
 
 // IsRepo checks if the directory is a git repository
@@ -89,9 +88,9 @@ func AddAll(dir string) error {
 func Commit(dir, message string) error {
 	cmd := exec.Command("git", "commit", "-m", message)
 	cmd.Dir = dir
-	cmdOut := ui.NewCmdOutput()
-	cmd.Stdout = cmdOut
-	cmd.Stderr = cmdOut
+	// Silence output during deployment
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 	return cmd.Run()
 }
 
@@ -99,9 +98,9 @@ func Commit(dir, message string) error {
 func Push(dir, remoteName, branch string) error {
 	cmd := exec.Command("git", "push", "-u", remoteName, branch)
 	cmd.Dir = dir
-	cmdOut := ui.NewCmdOutput()
-	cmd.Stdout = cmdOut
-	cmd.Stderr = cmdOut
+	// Silence output during deployment
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 	return cmd.Run()
 }
 

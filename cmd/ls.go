@@ -46,85 +46,58 @@ func runLs(cmd *cobra.Command, args []string) error {
 
 	ui.Section(fmt.Sprintf("Project: %s", projectCfg.Name))
 
-	if len(projectCfg.AppUUIDs) == 0 {
-		ui.Warning("No deployments found")
+	appUUID := projectCfg.AppUUID
+	if appUUID == "" {
+		ui.Warning("No application found")
 		ui.NextSteps([]string{
 			fmt.Sprintf("Run '%s' to deploy", execName()),
 		})
 		return nil
 	}
 
-	// Fetch all apps
-	type appInfo struct {
-		env    string
-		app    *api.Application
-		err    error
+	// Fetch application info
+	app, err := client.GetApplication(appUUID)
+	if err != nil {
+		ui.Error("Failed to fetch application info")
+		return fmt.Errorf("failed to fetch application: %w", err)
 	}
 
-	apps := []appInfo{}
-	for env, appUUID := range projectCfg.AppUUIDs {
-		if appUUID == "" {
-			continue
-		}
-
-		app, err := client.GetApplication(appUUID)
-		apps = append(apps, appInfo{
-			env: env,
-			app: app,
-			err: err,
-		})
+	status := app.Status
+	if status == "" {
+		status = "unknown"
 	}
 
-	// Build table
-	headers := []string{"Environment", "Status", "URL"}
-	rows := [][]string{}
-
-	for _, info := range apps {
-		if info.err != nil {
-			rows = append(rows, []string{
-				info.env,
-				ui.ErrorStyle.Render("error"),
-				ui.DimStyle.Render("-"),
-			})
-			continue
-		}
-
-		status := info.app.Status
-		if status == "" {
-			status = "unknown"
-		}
-
-		// Style status based on value
-		var statusDisplay string
-		statusLower := strings.ToLower(status)
-		switch statusLower {
-		case "running":
-			statusDisplay = ui.SuccessStyle.Render(ui.IconSuccess + " " + status)
-		case "stopped", "exited":
-			statusDisplay = ui.DimStyle.Render(ui.IconDot + " " + status)
-		case "starting", "restarting":
-			statusDisplay = ui.InfoStyle.Render(ui.IconDot + " " + status)
-		case "error", "failed":
-			statusDisplay = ui.ErrorStyle.Render(ui.IconError + " " + status)
-		default:
-			statusDisplay = status
-		}
-
-		url := info.app.FQDN
-		if url == "" {
-			url = ui.DimStyle.Render("-")
-		} else {
-			url = ui.InfoStyle.Render(url)
-		}
-
-		rows = append(rows, []string{
-			info.env,
-			statusDisplay,
-			url,
-		})
+	// Style status based on value
+	var statusDisplay string
+	statusLower := strings.ToLower(status)
+	switch statusLower {
+	case "running":
+		statusDisplay = ui.SuccessStyle.Render(ui.IconSuccess + " " + status)
+	case "stopped", "exited":
+		statusDisplay = ui.DimStyle.Render(ui.IconDot + " " + status)
+	case "starting", "restarting":
+		statusDisplay = ui.InfoStyle.Render(ui.IconDot + " " + status)
+	case "error", "failed":
+		statusDisplay = ui.ErrorStyle.Render(ui.IconError + " " + status)
+	default:
+		statusDisplay = status
 	}
 
-	ui.Table(headers, rows)
+	ui.KeyValue("Status", statusDisplay)
+	
+	url := app.FQDN
+	if url != "" {
+		ui.KeyValue("Production URL", ui.InfoStyle.Render(url))
+	}
+	
+	if app.PreviewURLTemplate != "" {
+		ui.KeyValue("Preview URL Template", ui.DimStyle.Render(app.PreviewURLTemplate))
+	}
+	
+	if app.IsPreviewDeploymentsEnabled {
+		ui.Spacer()
+		ui.Success("Preview deployments enabled")
+	}
 	
 	ui.Spacer()
 	ui.KeyValue("Deploy method", projectCfg.DeployMethod)

@@ -39,23 +39,25 @@ type Environment struct {
 
 // Application represents a Coolify application
 type Application struct {
-	ID                 int    `json:"id"`
-	UUID               string `json:"uuid"`
-	Name               string `json:"name"`
-	Description        string `json:"description"`
-	FQDN               string `json:"fqdn"`
-	GitRepository      string `json:"git_repository"`
-	GitBranch          string `json:"git_branch"`
-	BuildPack          string `json:"build_pack"`
-	InstallCommand     string `json:"install_command"`
-	BuildCommand       string `json:"build_command"`
-	StartCommand       string `json:"start_command"`
-	PortsExposes       string `json:"ports_exposes"`
-	Status             string `json:"status"`
-	EnvironmentID      int    `json:"environment_id"`
-	DestinationID      int    `json:"destination_id"`
-	DockerRegistryName string `json:"docker_registry_image_name"`
-	DockerRegistryTag  string `json:"docker_registry_image_tag"`
+	ID                        int    `json:"id"`
+	UUID                      string `json:"uuid"`
+	Name                      string `json:"name"`
+	Description               string `json:"description"`
+	FQDN                      string `json:"fqdn"`
+	GitRepository             string `json:"git_repository"`
+	GitBranch                 string `json:"git_branch"`
+	BuildPack                 string `json:"build_pack"`
+	InstallCommand            string `json:"install_command"`
+	BuildCommand              string `json:"build_command"`
+	StartCommand              string `json:"start_command"`
+	PortsExposes              string `json:"ports_exposes"`
+	Status                    string `json:"status"`
+	EnvironmentID             int    `json:"environment_id"`
+	DestinationID             int    `json:"destination_id"`
+	DockerRegistryName        string `json:"docker_registry_image_name"`
+	DockerRegistryTag         string `json:"docker_registry_image_tag"`
+	PreviewURLTemplate        string `json:"preview_url_template"`
+	IsPreviewDeploymentsEnabled bool `json:"is_preview_deployments_enabled"`
 }
 
 // CreatePublicAppRequest is the request body for creating a public app

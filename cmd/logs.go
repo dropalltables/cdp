@@ -35,18 +35,13 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not linked to a project")
 	}
 
-	env := config.EnvPreview
-	if prodFlag {
-		env = config.EnvProduction
-	}
-
-	appUUID := projectCfg.AppUUIDs[env]
+	appUUID := projectCfg.AppUUID
 	if appUUID == "" {
-		ui.Error(fmt.Sprintf("No deployment found for %s environment", env))
+		ui.Error("No application found")
 		ui.NextSteps([]string{
 			fmt.Sprintf("Run '%s' to deploy", execName()),
 		})
-		return fmt.Errorf("no deployment found")
+		return fmt.Errorf("no application found")
 	}
 
 	globalCfg, err := config.LoadGlobal()
@@ -56,7 +51,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
-	ui.Section(fmt.Sprintf("Deployment Logs - %s", env))
+	ui.Section("Deployment Logs")
 
 	ui.Info("Fetching logs...")
 	logs, err := client.GetDeploymentLogs(appUUID)
