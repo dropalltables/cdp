@@ -13,12 +13,6 @@ go build -o cdp .
 sudo mv cdp /usr/local/bin/
 ```
 
-### Using install script
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/dropalltables/cdp/main/scripts/install.sh | bash
-```
-
 ## Quick Start
 
 ```bash
