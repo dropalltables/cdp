@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ type BuildOptions struct {
 	Tag       string
 	Framework *detect.FrameworkInfo
 	Platform  string // e.g., "linux/amd64" or "linux/arm64"
+	Verbose   bool   // Show full output instead of hiding it
 }
 
 // Build builds a Docker image for the project
@@ -62,13 +64,59 @@ func Build(opts *BuildOptions) (err error) {
 
 	cmd := exec.Command("docker", args...)
 	cmd.Dir = opts.Dir
-	cmdOut := ui.NewCmdOutput()
-	cmd.Stdout = cmdOut
-	cmd.Stderr = cmdOut
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("docker build failed: %w", err)
+	// In verbose mode, stream output with dim styling like deployment logs
+	if opts.Verbose {
+		stdout, _ := cmd.StdoutPipe()
+		stderr, _ := cmd.StderrPipe()
+
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("docker build failed to start: %w", err)
+		}
+
+		done := make(chan bool, 2)
+
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				// Only print non-empty lines
+				if line != "" {
+					fmt.Println(ui.DimStyle.Render("  " + line))
+				}
+			}
+			done <- true
+		}()
+
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				// Only print non-empty lines
+				if line != "" {
+					fmt.Println(ui.DimStyle.Render("  " + line))
+				}
+			}
+			done <- true
+		}()
+
+		<-done
+		<-done
+
+		if err := cmd.Wait(); err != nil {
+			return fmt.Errorf("docker build failed: %w", err)
+		}
+	} else {
+		// In normal mode, capture output (only shown on error via CDP_DEBUG)
+		cmdOut := ui.NewCmdOutput()
+		cmd.Stdout = cmdOut
+		cmd.Stderr = cmdOut
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("docker build failed: %w", err)
+		}
 	}
+
 	return nil
 }
 

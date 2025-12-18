@@ -98,6 +98,7 @@ func runDeploy() error {
 
 func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config.ProjectConfig, error) {
 	ui.StepProgress(1, 5, "Framework Detection")
+	ui.Spacer()
 
 	// Detect framework
 	ui.Info("Analyzing project...")
@@ -149,6 +150,13 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config
 	if err != nil {
 		return nil, err
 	}
+	ui.Spacer()
+	// Display friendly name
+	deployMethodDisplay := "Git"
+	if deployMethod == config.DeployMethodDocker {
+		deployMethodDisplay = "Docker"
+	}
+	ui.Dim(fmt.Sprintf("→ %s", deployMethodDisplay))
 
 	// Select server
 	ui.Divider()
@@ -185,6 +193,7 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config
 
 	ui.Spacer()
 	serverOptions := make(map[string]string)
+	var selectedServerName string
 	for _, s := range servers {
 		displayName := s.Name
 		if s.IP != "" {
@@ -196,6 +205,9 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config
 	if err != nil {
 		return nil, err
 	}
+	selectedServerName = serverOptions[serverUUID]
+	ui.Spacer()
+	ui.Dim(fmt.Sprintf("→ %s", selectedServerName))
 
 	// Select or create project (questions only)
 	ui.Divider()
@@ -237,6 +249,7 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config
 	var projectUUID string
 	var environmentUUID string
 	var newProjectName string
+	var displayProjectName string
 	needsProjectCreation := selectedProject == "+ Create new project"
 
 	if needsProjectCreation {
@@ -247,13 +260,17 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config
 		if err != nil {
 			return nil, err
 		}
+		displayProjectName = newProjectName
 	} else {
 		// Use existing project
 		project := projectMap[selectedProject]
 		projectUUID = project.UUID
-		
+		displayProjectName = selectedProject
+
 		// Will check/create environment at the end with other API calls
 	}
+	ui.Spacer()
+	ui.Dim(fmt.Sprintf("→ %s", displayProjectName))
 
 	// Advanced options
 	ui.Divider()
@@ -283,9 +300,12 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config
 		if err != nil {
 			return nil, err
 		}
+		ui.Spacer()
+		ui.Dim(fmt.Sprintf("→ Port: %s", port))
 
 		// Platform (for Docker builds)
 		if deployMethod == config.DeployMethodDocker {
+			ui.Spacer()
 			platformOptions := []string{"linux/amd64 (Intel/AMD)", "linux/arm64 (ARM)"}
 			platformChoice, err := ui.Select("Target platform:", platformOptions)
 			if err != nil {
@@ -294,26 +314,35 @@ func firstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config
 			if strings.Contains(platformChoice, "arm64") {
 				platform = "linux/arm64"
 			}
+			ui.Spacer()
+			ui.Dim(fmt.Sprintf("→ %s", platformChoice))
 		}
 
 		// Branch (for Git deploys)
 		if deployMethod == config.DeployMethodGit {
+			ui.Spacer()
 			branch, err = ui.InputWithDefault("Git branch:", branch)
 			if err != nil {
 				return nil, err
 			}
+			ui.Spacer()
+			ui.Dim(fmt.Sprintf("→ Branch: %s", branch))
 		}
 
 		// Domain
+		ui.Spacer()
 		useDomain, err := ui.Confirm("Configure custom domain?")
 		if err != nil {
 			return nil, err
 		}
 		if useDomain {
+			ui.Spacer()
 			domain, err = ui.Input("Domain:", "app.example.com")
 			if err != nil {
 				return nil, err
 			}
+			ui.Spacer()
+			ui.Dim(fmt.Sprintf("→ %s", domain))
 		}
 	}
 
@@ -434,8 +463,6 @@ func chooseDeployMethod(globalCfg *config.GlobalConfig) (string, error) {
 
 	if len(options) == 1 {
 		// Auto-select if only one option available
-		ui.Info(fmt.Sprintf("Using %s deployment", options[0]))
-		ui.Spacer()
 		return optionMap[options[0]], nil
 	}
 
@@ -465,7 +492,7 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 	ui.KeyValue("Platform", projectCfg.Platform)
 	ui.Spacer()
 
-	// Build image (keep Docker build output visible - no spinner)
+	// Build image
 	framework := &detect.FrameworkInfo{
 		Name:             projectCfg.Framework,
 		InstallCommand:   projectCfg.InstallCommand,
@@ -474,21 +501,48 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 		PublishDirectory: projectCfg.PublishDir,
 	}
 
-	ui.Info("Building Docker image...")
-	ui.Spacer()
-	err := docker.Build(&docker.BuildOptions{
-		Dir:       ".",
-		ImageName: projectCfg.DockerImage,
-		Tag:       tag,
-		Framework: framework,
-		Platform:  projectCfg.Platform,
-	})
-	ui.Spacer()
+	// Use spinner for build unless verbose mode is enabled
+	verbose := IsVerbose()
+	var err error
+	if !verbose {
+		buildTask := ui.Task{
+			Name:         "build-image",
+			ActiveName:   "Building Docker image...",
+			CompleteName: "✓ Image built successfully",
+			Action: func() error {
+				return docker.Build(&docker.BuildOptions{
+					Dir:       ".",
+					ImageName: projectCfg.DockerImage,
+					Tag:       tag,
+					Framework: framework,
+					Platform:  projectCfg.Platform,
+					Verbose:   false,
+				})
+			},
+		}
+		err = ui.RunTasks([]ui.Task{buildTask})
+	} else {
+		// In verbose mode, show build output directly
+		ui.Info("Building Docker image...")
+		ui.Spacer()
+		err = docker.Build(&docker.BuildOptions{
+			Dir:       ".",
+			ImageName: projectCfg.DockerImage,
+			Tag:       tag,
+			Framework: framework,
+			Platform:  projectCfg.Platform,
+			Verbose:   true,
+		})
+		ui.Spacer()
+		if err == nil {
+			ui.Success("Image built successfully")
+		}
+	}
+
 	if err != nil {
 		ui.Error("Build failed")
 		return fmt.Errorf("build failed: %w", err)
 	}
-	ui.Success("Image built successfully")
 
 	// ===== API Operations with BubbleTea task runner =====
 
@@ -591,6 +645,7 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 				Registry:  globalCfg.DockerRegistry.URL,
 				Username:  globalCfg.DockerRegistry.Username,
 				Password:  globalCfg.DockerRegistry.Password,
+				Verbose:   verbose,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to push image %s:%s to registry: %w", projectCfg.DockerImage, tag, err)
@@ -654,7 +709,7 @@ func deployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 	})
 
 	// Run all tasks
-	if err := ui.RunTasks(tasks); err != nil {
+	if err := ui.RunTasksVerbose(tasks, verbose); err != nil {
 		ui.Spacer()
 		ui.Error("Deployment setup failed")
 		return err
@@ -699,14 +754,17 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 	ui.Bold("Git Deployment")
 	ui.Spacer()
 
+	// Check verbose mode
+	verbose := IsVerbose()
+
 	// ===== PHASE 1: Questions =====
-	
+
 	// Create project/environment if needed (spinner at end)
 	needsProjectCreation := projectCfg.ProjectUUID == ""
 	
 	// Get GitHub username
 	var user *git.User
-	err := ui.RunTasks([]ui.Task{
+	err := ui.RunTasksVerbose([]ui.Task{
 		{
 			Name:         "github-check",
 			ActiveName:   "Checking GitHub connection...",
@@ -717,7 +775,7 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 				return err
 			},
 		},
-	})
+	}, verbose)
 	if err != nil {
 		ui.Spacer()
 		ui.Error("Failed to connect to GitHub")
@@ -743,8 +801,11 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 		}
 		projectCfg.GitHubRepo = repoName
 		fullRepoName = fmt.Sprintf("%s/%s", user.Login, repoName)
+		ui.Spacer()
+		ui.Dim(fmt.Sprintf("→ %s", fullRepoName))
 
 		// Ask for visibility
+		ui.Spacer()
 		visibilityOptions := []string{"Private", "Public"}
 		visibility, err := ui.Select("Repository visibility:", visibilityOptions)
 		if err != nil {
@@ -752,12 +813,14 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 		}
 		isPrivate = visibility == "Private"
 		projectCfg.GitHubPrivate = isPrivate
+		ui.Spacer()
+		ui.Dim(fmt.Sprintf("→ %s", visibility))
 	}
 
 	// Get GitHub App for Coolify (question if multiple)
 	ui.Spacer()
 	var githubApps []api.GitHubApp
-	err = ui.RunTasks([]ui.Task{
+	err = ui.RunTasksVerbose([]ui.Task{
 		{
 			Name:         "load-apps",
 			ActiveName:   "Loading GitHub Apps...",
@@ -768,7 +831,7 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 				return err
 			},
 		},
-	})
+	}, verbose)
 	if err != nil {
 		ui.Spacer()
 		ui.Error("Failed to load GitHub Apps")
@@ -786,10 +849,10 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 
 	// Select GitHub App (prompt if multiple)
 	var githubAppUUID string
+	var selectedAppName string
 	if len(githubApps) == 1 {
 		githubAppUUID = githubApps[0].UUID
-		ui.Spacer()
-		ui.Info(fmt.Sprintf("Using GitHub App: %s", githubApps[0].Name))
+		selectedAppName = githubApps[0].Name
 	} else {
 		ui.Spacer()
 		appOptions := make(map[string]string)
@@ -804,7 +867,10 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 		if err != nil {
 			return err
 		}
+		selectedAppName = appOptions[githubAppUUID]
 	}
+	ui.Spacer()
+	ui.Dim(fmt.Sprintf("→ %s", selectedAppName))
 
 	// ===== PHASE 2: API Operations with BubbleTea task runner =====
 
@@ -954,12 +1020,12 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 				return fmt.Errorf("failed to configure git remote: %w", err)
 			}
 
-			if err := git.AutoCommit("."); err != nil {
+			if err := git.AutoCommitVerbose(".", verbose); err != nil {
 				// Ignore if nothing to commit
 			}
 
 			// Use secure token-based authentication
-			return git.PushWithToken(".", "origin", branch, globalCfg.GitHubToken)
+			return git.PushWithTokenVerbose(".", "origin", branch, globalCfg.GitHubToken, verbose)
 		},
 	})
 
@@ -1014,6 +1080,9 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 				appUUID = resp.UUID
 				projectCfg.AppUUID = appUUID
 
+				// Note: Preview deployments for Git apps are enabled by default in Coolify
+				// when using GitHub App integration. No additional configuration needed.
+
 				return config.SaveProject(projectCfg)
 			},
 		})
@@ -1033,8 +1102,8 @@ func deployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 		},
 	})
 
-	// Run all tasks
-	if err := ui.RunTasks(tasks); err != nil {
+	// Run all tasks with verbose mode
+	if err := ui.RunTasksVerbose(tasks, verbose); err != nil {
 		ui.Spacer()
 		ui.Error("Deployment setup failed")
 		return err

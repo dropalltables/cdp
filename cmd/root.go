@@ -18,6 +18,9 @@ var (
 
 	// Flags for env command
 	previewFlag bool
+
+	// Global verbose flag
+	verboseFlag bool
 )
 
 var rootCmd = &cobra.Command{
@@ -38,6 +41,9 @@ Run 'cdp' to deploy, or 'cdp --help' for more commands.`,
 func init() {
 	// Customize help template
 	rootCmd.SetHelpFunc(customHelp)
+
+	// Add global flags
+	rootCmd.PersistentFlags().BoolVarP(&verboseFlag, "verbose", "v", false, "Show detailed command output (disables spinners)")
 }
 
 // Execute runs the root command
@@ -75,6 +81,11 @@ func checkLogin() error {
 		return fmt.Errorf("authentication required")
 	}
 	return nil
+}
+
+// IsVerbose returns whether verbose mode is enabled
+func IsVerbose() bool {
+	return verboseFlag
 }
 
 // getWorkingDirName returns the name of the current working directory

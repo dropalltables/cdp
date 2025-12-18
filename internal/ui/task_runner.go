@@ -25,10 +25,11 @@ type TaskRunnerModel struct {
 	err         error
 	done        bool
 	quitting    bool
+	verbose     bool // If true, skip spinner and show completion messages immediately
 }
 
 // NewTaskRunner creates a new task runner model
-func NewTaskRunner(tasks []Task) TaskRunnerModel {
+func NewTaskRunner(tasks []Task, verbose bool) TaskRunnerModel {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
 	s.Style = DimStyle
@@ -37,11 +38,16 @@ func NewTaskRunner(tasks []Task) TaskRunnerModel {
 		tasks:     tasks,
 		spinner:   s,
 		completed: []string{},
+		verbose:   verbose,
 	}
 }
 
 // Init initializes the model
 func (m TaskRunnerModel) Init() tea.Cmd {
+	// In verbose mode, don't use spinner
+	if m.verbose {
+		return m.runNextTask()
+	}
 	return tea.Batch(
 		m.spinner.Tick,
 		m.runNextTask(),
@@ -95,9 +101,12 @@ func (m TaskRunnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.runNextTask()
 
 	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		// Only handle spinner ticks in non-verbose mode
+		if !m.verbose {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
 
 	case allTasksCompleteMsg:
 		m.done = true
@@ -120,10 +129,16 @@ func (m TaskRunnerModel) View() string {
 		buf.WriteString(completed + "\n")
 	}
 
-	// Show current task with spinner
+	// Show current task
 	if m.currentIdx < len(m.tasks) {
 		task := m.tasks[m.currentIdx]
-		buf.WriteString(m.spinner.View() + " " + task.ActiveName)
+		if m.verbose {
+			// In verbose mode, just show the active message without spinner
+			buf.WriteString(IconDot + " " + task.ActiveName)
+		} else {
+			// In normal mode, show spinner
+			buf.WriteString(m.spinner.View() + " " + task.ActiveName)
+		}
 	}
 
 	return buf.String()
@@ -132,11 +147,30 @@ func (m TaskRunnerModel) View() string {
 // RunTasks executes a sequence of tasks with spinner feedback
 // Returns an error if any task fails
 func RunTasks(tasks []Task) error {
+	return RunTasksVerbose(tasks, false)
+}
+
+// RunTasksVerbose executes a sequence of tasks with optional verbose mode
+// Returns an error if any task fails
+func RunTasksVerbose(tasks []Task, verbose bool) error {
 	if len(tasks) == 0 {
 		return nil
 	}
 
-	p := tea.NewProgram(NewTaskRunner(tasks))
+	// In verbose mode, skip BubbleTea entirely and run tasks directly
+	if verbose {
+		for _, task := range tasks {
+			Info(task.ActiveName)
+			if err := task.Action(); err != nil {
+				return err
+			}
+			Success(strings.TrimPrefix(task.CompleteName, "✓ "))
+		}
+		return nil
+	}
+
+	// In normal mode, use BubbleTea task runner with spinner
+	p := tea.NewProgram(NewTaskRunner(tasks, verbose))
 	finalModel, err := p.Run()
 	if err != nil {
 		return fmt.Errorf("task runner failed: %w", err)

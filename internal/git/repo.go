@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/dropalltables/cdp/internal/config"
+	"github.com/dropalltables/cdp/internal/ui"
 )
 
 // IsRepo checks if the directory is a git repository
@@ -86,11 +88,55 @@ func AddAll(dir string) error {
 
 // Commit creates a commit with the given message
 func Commit(dir, message string) error {
+	return CommitVerbose(dir, message, false)
+}
+
+// CommitVerbose creates a commit with optional output
+func CommitVerbose(dir, message string, verbose bool) error {
 	cmd := exec.Command("git", "commit", "-m", message)
 	cmd.Dir = dir
-	// Silence output during deployment
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	if verbose {
+		// Stream output with dim styling like deployment logs
+		stdout, _ := cmd.StdoutPipe()
+		stderr, _ := cmd.StderrPipe()
+
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+
+		done := make(chan bool, 2)
+
+		// Print stdout
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				// Only print non-empty lines
+				if line != "" {
+					fmt.Println(ui.DimStyle.Render("  " + line))
+				}
+			}
+			done <- true
+		}()
+
+		// Print stderr
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				// Only print non-empty lines
+				if line != "" {
+					fmt.Println(ui.DimStyle.Render("  " + line))
+				}
+			}
+			done <- true
+		}()
+
+		<-done
+		<-done
+
+		return cmd.Wait()
+	}
 	return cmd.Run()
 }
 
@@ -106,12 +152,17 @@ func Push(dir, remoteName, branch string) error {
 
 // PushWithToken pushes to the remote using token-based authentication
 func PushWithToken(dir, remoteName, branch, token string) error {
+	return PushWithTokenVerbose(dir, remoteName, branch, token, false)
+}
+
+// PushWithTokenVerbose pushes to the remote using token-based authentication with optional output
+func PushWithTokenVerbose(dir, remoteName, branch, token string, verbose bool) error {
 	// Get current remote URL
 	currentURL, err := GetRemoteURL(dir, remoteName)
 	if err != nil {
 		return fmt.Errorf("failed to get remote URL: %w", err)
 	}
-	
+
 	// Inject token into URL temporarily
 	var urlWithToken string
 	if strings.HasPrefix(currentURL, "https://github.com/") {
@@ -119,28 +170,62 @@ func PushWithToken(dir, remoteName, branch, token string) error {
 	} else {
 		return fmt.Errorf("unsupported remote URL format: %s", currentURL)
 	}
-	
+
 	// Temporarily update remote URL
 	if err := SetRemote(dir, remoteName, urlWithToken); err != nil {
 		return fmt.Errorf("failed to set remote URL: %w", err)
 	}
-	
+
 	// Restore original URL after push
 	defer SetRemote(dir, remoteName, currentURL)
-	
+
 	// Push
 	cmd := exec.Command("git", "push", "-u", remoteName, branch)
 	cmd.Dir = dir
-	
-	debug := os.Getenv("CDP_DEBUG") != ""
-	if debug {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	} else {
-		cmd.Stdout = nil
-		cmd.Stderr = nil
+
+	if verbose {
+		// Stream output with dim styling like deployment logs
+		stdout, _ := cmd.StdoutPipe()
+		stderr, _ := cmd.StderrPipe()
+
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+
+		// Combine stdout and stderr for git push (progress goes to stderr)
+		done := make(chan bool, 2)
+
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				// Only print non-empty lines
+				if line != "" {
+					fmt.Println(ui.DimStyle.Render("  " + line))
+				}
+			}
+			done <- true
+		}()
+
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				// Only print non-empty lines
+				if line != "" {
+					fmt.Println(ui.DimStyle.Render("  " + line))
+				}
+			}
+			done <- true
+		}()
+
+		// Wait for both readers
+		<-done
+		<-done
+
+		return cmd.Wait()
 	}
-	
+
 	return cmd.Run()
 }
 
@@ -157,6 +242,11 @@ func GetLatestCommitHash(dir string) (string, error) {
 
 // AutoCommit stages all changes and creates a commit
 func AutoCommit(dir string) error {
+	return AutoCommitVerbose(dir, false)
+}
+
+// AutoCommitVerbose stages all changes and creates a commit with optional output
+func AutoCommitVerbose(dir string, verbose bool) error {
 	if !HasChanges(dir) {
 		return nil // Nothing to commit
 	}
@@ -166,5 +256,5 @@ func AutoCommit(dir string) error {
 	}
 
 	message := fmt.Sprintf("Deploy via cdp")
-	return Commit(dir, message)
+	return CommitVerbose(dir, message, verbose)
 }

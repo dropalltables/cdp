@@ -83,20 +83,37 @@ func runReset(cmd *cobra.Command, args []string) error {
 			ui.Warning(fmt.Sprintf("Failed to delete app: %v", err))
 		} else {
 			ui.Success("Deleted Coolify app")
-			// Wait for Coolify to finish cleanup
-			ui.Info("Waiting for Coolify cleanup...")
-			time.Sleep(5 * time.Second)
 		}
 	}
 
-	// Delete Coolify project
+	// Delete Coolify project with retries
+	// (Coolify requires all resources to be deleted first)
 	if projectCfg.ProjectUUID != "" {
+		ui.Info("Waiting for Coolify cleanup...")
+		time.Sleep(5 * time.Second)
+
 		ui.Info("Deleting Coolify project...")
-		err := client.DeleteProject(projectCfg.ProjectUUID)
-		if err != nil {
-			ui.Warning(fmt.Sprintf("Failed to delete project: %v", err))
-		} else {
-			ui.Success("Deleted Coolify project")
+
+		// Try up to 5 times with increasing delays
+		var lastErr error
+		for attempt := 1; attempt <= 5; attempt++ {
+			err := client.DeleteProject(projectCfg.ProjectUUID)
+			if err == nil {
+				ui.Success("Deleted Coolify project")
+				break
+			}
+
+			lastErr = err
+			if attempt < 5 {
+				waitTime := time.Duration(attempt*2) * time.Second
+				ui.Dim(fmt.Sprintf("Retry %d/5 in %ds...", attempt, int(waitTime.Seconds())))
+				time.Sleep(waitTime)
+			}
+		}
+
+		if lastErr != nil {
+			ui.Warning(fmt.Sprintf("Failed to delete project: %v", lastErr))
+			ui.Dim("You may need to manually delete the project in Coolify if it still has resources")
 		}
 	}
 
