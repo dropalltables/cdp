@@ -1,6 +1,6 @@
 - move detection to https://github.com/coollabsio/coolpack
 
-- Env vars should use `--prod` to delete prod, instead of deleting prod by default and using `--preview` to delete preview
+- Env vars should use `--prod` to delete prod, instead of deleting prod by default and using `--preview` to delete preview - DONE
 - Fix spacing issues (use debug flag `CDP_DEBUG=1 cdp`) to see where it is coming from
 - **BIG THING:** allow preview deployments with git setup  
   - For Docker this cannot work, but git deploys should set up Coolify to work with GitHub PRs on the deploy repo

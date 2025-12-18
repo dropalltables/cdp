@@ -18,6 +18,7 @@ var (
 
 	// Flags for env command
 	previewFlag bool
+	prodFlag    bool
 
 	// Global verbose flag
 	verboseFlag bool
