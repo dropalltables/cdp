@@ -1,3 +1,5 @@
+- building docker image should have spinner
+
 - Env vars should use `--prod` to delete prod, instead of deleting prod by default and using `--preview` to delete preview
 - Fix spacing issues (use debug flag `CDP_DEBUG=1 cdp`) to see where it is coming from
 - **BIG THING:** allow preview deployments with git setup  
