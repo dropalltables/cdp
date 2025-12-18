@@ -58,8 +58,8 @@ func init() {
 	envCmd.AddCommand(envPullCmd)
 	envCmd.AddCommand(envPushCmd)
 	
-	// Add --preview flag for env commands to target preview deployments (from PRs)
 	envCmd.PersistentFlags().BoolVar(&previewFlag, "preview", false, "Target preview deployments (from Pull Requests)")
+	envCmd.PersistentFlags().BoolVar(&prodFlag, "prod", false, "Target main production deployment")
 }
 
 func getAppUUID() (string, *api.Client, error) {
@@ -163,7 +163,15 @@ func runEnvAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Set is_preview based on flag
+	if prodFlag && previewFlag {
+		ui.Error("Cannot use both --prod and --preview")
+		return fmt.Errorf("conflicting flags")
+	}
+
+	if !prodFlag && !previewFlag {
+		ui.Error("You must specify exactly one of --prod or --preview")
+		return fmt.Errorf("missing environment target flag")
+	}
 	isPreview := previewFlag
 
 	ui.Info(fmt.Sprintf("Adding %s...", key))
@@ -187,6 +195,20 @@ func runEnvRm(cmd *cobra.Command, args []string) error {
 	appUUID, client, err := getAppUUID()
 	if err != nil {
 		return err
+	}
+
+	if !prodFlag && !previewFlag {
+		ui.Error("Must use either --prod or --preview flag")
+		ui.Spacer()
+		ui.Print("Examples:")
+		ui.Print("  " + ui.CodeStyle.Render(fmt.Sprintf("%s env rm KEY --prod", execName())))
+		ui.Print("  " + ui.CodeStyle.Render(fmt.Sprintf("%s env rm KEY --preview", execName())))
+		return fmt.Errorf("deployment type not specified")
+	}
+
+	if prodFlag && previewFlag {
+		ui.Error("Cannot use both --prod and --preview")
+		return fmt.Errorf("conflicting flags")
 	}
 
 	// Confirm deletion
@@ -244,6 +266,11 @@ func runEnvPull(cmd *cobra.Command, args []string) error {
 	appUUID, client, err := getAppUUID()
 	if err != nil {
 		return err
+	}
+
+	if prodFlag && previewFlag {
+		ui.Error("Cannot use both --prod and --preview")
+		return fmt.Errorf("conflicting flags")
 	}
 
 	deploymentType := "production"
@@ -314,6 +341,11 @@ func runEnvPush(cmd *cobra.Command, args []string) error {
 	appUUID, client, err := getAppUUID()
 	if err != nil {
 		return err
+	}
+
+	if prodFlag && previewFlag {
+		ui.Error("Cannot use both --prod and --preview")
+		return fmt.Errorf("conflicting flags")
 	}
 
 	deploymentType := "production"
