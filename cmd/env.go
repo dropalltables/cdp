@@ -59,7 +59,7 @@ func init() {
 	envCmd.AddCommand(envPushCmd)
 	
 	envCmd.PersistentFlags().BoolVar(&previewFlag, "preview", false, "Target preview deployments (from Pull Requests)")
-	envCmd.PersistentFlags().BoolVar(&prodFlag, "prod", false, "Target production deployment (from Pull Requests)")
+	envCmd.PersistentFlags().BoolVar(&prodFlag, "prod", false, "Target main production deployment")
 }
 
 func getAppUUID() (string, *api.Client, error) {
