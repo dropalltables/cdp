@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -118,7 +118,37 @@ func Spacer() {
 }
 
 func Divider() {
-	fmt.Println(DimStyle.Render(strings.Repeat("─", 60)))
+	width := getTerminalWidth()
+	if width > 80 {
+		width = 80 // Cap at 80 for readability
+	} else if width < 40 {
+		width = 40 // Minimum width
+	}
+	fmt.Println(DimStyle.Render(strings.Repeat("─", width)))
+}
+
+// getTerminalWidth returns the terminal width, defaulting to 60 if unavailable
+func getTerminalWidth() int {
+	// Try to get terminal size from standard library
+	if width, _, err := getTerminalSize(); err == nil && width > 0 {
+		return width
+	}
+	return 60 // Default fallback
+}
+
+// getTerminalSize returns the terminal width and height
+func getTerminalSize() (int, int, error) {
+	// This is a simple implementation that works on Unix-like systems
+	// For more robust cross-platform support, consider using golang.org/x/term
+	cmd := exec.Command("stty", "size")
+	cmd.Stdin = os.Stdin
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, 0, err
+	}
+	var height, width int
+	_, err = fmt.Sscanf(string(out), "%d %d", &height, &width)
+	return width, height, err
 }
 
 func Code(msg string) {
@@ -339,10 +369,12 @@ func NewCmdOutput() *CmdOutput {
 }
 
 func (c *CmdOutput) Write(p []byte) (n int, err error) {
-	lines := strings.Split(string(p), "\n")
-	for _, line := range lines {
-		if line != "" {
-			fmt.Println(DimStyle.Render("  " + line))
+	if debugMode {
+		lines := strings.Split(string(p), "\n")
+		for _, line := range lines {
+			if line != "" {
+				fmt.Println(DimStyle.Render("  " + line))
+			}
 		}
 	}
 	return len(p), nil
@@ -389,85 +421,3 @@ func StepProgress(current, total int, stepName string) {
 	fmt.Printf("%s %s\n", progress, stepName)
 }
 
-// Spinner for long-running operations
-type Spinner struct {
-	frames      []string
-	frame       int
-	message     string
-	lines       []string
-	ticker      *time.Ticker
-	done        chan bool
-	running     bool
-}
-
-var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-
-func NewSpinner() *Spinner {
-	return &Spinner{
-		frames: spinnerFrames,
-		lines:  []string{},
-		done:   make(chan bool),
-	}
-}
-
-func (s *Spinner) Start() {
-	s.running = true
-	s.ticker = time.NewTicker(80 * time.Millisecond)
-	
-	go func() {
-		for {
-			select {
-			case <-s.done:
-				return
-			case <-s.ticker.C:
-				if s.running && s.message != "" {
-					s.frame = (s.frame + 1) % len(s.frames)
-					fmt.Printf("\r\033[K%s %s", DimStyle.Render(s.frames[s.frame]), s.message)
-				}
-			}
-		}
-	}()
-}
-
-func (s *Spinner) UpdateMessage(msg string) {
-	s.message = msg
-}
-
-func (s *Spinner) Complete(msg string) {
-	if s.running {
-		// Temporarily stop updating to print the completion message
-		wasRunning := s.running
-		s.running = false
-		// Give time for any in-flight ticker to finish
-		time.Sleep(100 * time.Millisecond)
-		// Clear the spinner line
-		fmt.Print("\r\033[K")
-		// Print the completed message with newline
-		fmt.Println(msg)
-		// Add to history
-		s.lines = append(s.lines, msg)
-		s.message = ""
-		// Resume if it was running
-		if wasRunning {
-			s.running = true
-		}
-	}
-}
-
-func (s *Spinner) Stop() {
-	if s.running {
-		s.running = false
-		if s.ticker != nil {
-			s.ticker.Stop()
-		}
-		// Send done signal if channel is ready
-		select {
-		case s.done <- true:
-		default:
-		}
-		// Clear the current line only if there's a message
-		if s.message != "" {
-			fmt.Print("\r\033[K")
-		}
-	}
-}

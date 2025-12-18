@@ -104,6 +104,46 @@ func Push(dir, remoteName, branch string) error {
 	return cmd.Run()
 }
 
+// PushWithToken pushes to the remote using token-based authentication
+func PushWithToken(dir, remoteName, branch, token string) error {
+	// Get current remote URL
+	currentURL, err := GetRemoteURL(dir, remoteName)
+	if err != nil {
+		return fmt.Errorf("failed to get remote URL: %w", err)
+	}
+	
+	// Inject token into URL temporarily
+	var urlWithToken string
+	if strings.HasPrefix(currentURL, "https://github.com/") {
+		urlWithToken = strings.Replace(currentURL, "https://github.com/", fmt.Sprintf("https://%s@github.com/", token), 1)
+	} else {
+		return fmt.Errorf("unsupported remote URL format: %s", currentURL)
+	}
+	
+	// Temporarily update remote URL
+	if err := SetRemote(dir, remoteName, urlWithToken); err != nil {
+		return fmt.Errorf("failed to set remote URL: %w", err)
+	}
+	
+	// Restore original URL after push
+	defer SetRemote(dir, remoteName, currentURL)
+	
+	// Push
+	cmd := exec.Command("git", "push", "-u", remoteName, branch)
+	cmd.Dir = dir
+	
+	debug := os.Getenv("CDP_DEBUG") != ""
+	if debug {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+	}
+	
+	return cmd.Run()
+}
+
 // GetLatestCommitHash returns the latest commit hash
 func GetLatestCommitHash(dir string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--short", "HEAD")

@@ -1,0 +1,30 @@
+- Env vars should use `--prod` to delete prod, instead of deleting prod by default and using `--preview` to delete preview
+- Fix spacing issues (use debug flag `CDP_DEBUG=1 cdp`) to see where it is coming from
+- **BIG THING:** allow preview deployments with git setup  
+  - For Docker this cannot work, but git deploys should set up Coolify to work with GitHub PRs on the deploy repo
+- Get `ls` command to work (`cdp ls`) and list deployments
+- Test `link` command / get working if broken
+- Unify UI (if needed)
+- Add a verbose flag to disable spinners on deploy and show git/docker/etc output when doing stuff  
+  - This should be different from debug, since debug only shows command output
+- Logs should show what was picked instead of generic output like:
+```
+
+step 1
+step 2
+step 3
+deploying to coolify...
+done!
+
+```
+The output should be:
+```
+
+step 1
+> git
+step 2
+> private repo
+etc
+deploying to coolify...
+
+```

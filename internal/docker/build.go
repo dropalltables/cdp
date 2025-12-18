@@ -24,23 +24,32 @@ type BuildOptions struct {
 }
 
 // Build builds a Docker image for the project
-func Build(opts *BuildOptions) error {
+func Build(opts *BuildOptions) (err error) {
 	// Generate Dockerfile if one doesn't exist
 	dockerfilePath := filepath.Join(opts.Dir, "Dockerfile")
 	tempDockerfile := false
 
-	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(dockerfilePath); os.IsNotExist(statErr) {
 		content := GenerateDockerfile(opts.Framework)
 		tempDockerfilePath := filepath.Join(opts.Dir, "Dockerfile.cdp")
-		if err := os.WriteFile(tempDockerfilePath, []byte(content), 0644); err != nil {
-			return fmt.Errorf("failed to write Dockerfile: %w", err)
+		if writeErr := os.WriteFile(tempDockerfilePath, []byte(content), 0644); writeErr != nil {
+			return fmt.Errorf("failed to write Dockerfile: %w", writeErr)
 		}
 		dockerfilePath = tempDockerfilePath
 		tempDockerfile = true
 	}
 
+	// Ensure cleanup happens even on panic or early return
 	if tempDockerfile {
-		defer os.Remove(dockerfilePath)
+		defer func() {
+			// Recover from panic if any, clean up, then re-panic
+			if r := recover(); r != nil {
+				os.Remove(dockerfilePath)
+				panic(r)
+			}
+			// Normal cleanup
+			os.Remove(dockerfilePath)
+		}()
 	}
 
 	platform := opts.Platform

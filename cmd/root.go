@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -40,6 +42,13 @@ func init() {
 
 // Execute runs the root command
 func Execute() error {
+	// Show binary hash in debug mode
+	if os.Getenv("CDP_DEBUG") != "" {
+		if hash, err := getBinaryHash(); err == nil {
+			ui.Dim(fmt.Sprintf("[DEBUG] Binary hash: %s", hash[:16]))
+		}
+	}
+
 	err := rootCmd.Execute()
 	if err != nil {
 		ui.ErrorWithSuggestion(err, "Run 'cdp --help' for usage")
@@ -75,6 +84,27 @@ func getWorkingDirName() string {
 		return "app"
 	}
 	return filepath.Base(dir)
+}
+
+// getBinaryHash returns the SHA-256 hash of the running binary
+func getBinaryHash() (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+
+	file, err := os.Open(exePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
 // customHelp provides a styled help output

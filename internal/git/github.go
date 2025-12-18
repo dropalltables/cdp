@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -92,11 +93,19 @@ func (c *GitHubClient) DeleteRepo(owner, name string) error {
 }
 
 func (c *GitHubClient) request(method, url string, body interface{}, result interface{}) error {
+	debug := os.Getenv("CDP_DEBUG") != ""
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] GitHub API: %s %s\n", method, url)
+	}
+
 	var bodyReader io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
 			return err
+		}
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Request body: %s\n", string(jsonBody))
 		}
 		bodyReader = bytes.NewReader(jsonBody)
 	}
@@ -113,15 +122,29 @@ func (c *GitHubClient) request(method, url string, body interface{}, result inte
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Sending request...\n")
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if debug {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Request failed: %v\n", err)
+		}
 		return err
 	}
 	defer resp.Body.Close()
 
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Response status: %d\n", resp.StatusCode)
+	}
+
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return err
+	}
+
+	if debug && len(respBody) > 0 {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Response body: %s\n", string(respBody))
 	}
 
 	if resp.StatusCode >= 400 {
