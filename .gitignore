@@ -3,3 +3,4 @@ cdp
 .env
 cdp.json
 dist/
+.DS_Store

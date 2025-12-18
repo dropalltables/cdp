@@ -28,3 +28,6 @@ etc
 deploying to coolify...
 
 ```
+
+long term:
+- add cloudflare api functionality, basically this should auto add a dns record to cf with the custom domain I chose, and then point it toward my server, depending on if i want it proxied or unproxied
