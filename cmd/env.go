@@ -168,6 +168,10 @@ func runEnvAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("conflicting flags")
 	}
 
+	if !prodFlag && !previewFlag {
+		ui.Error("You must specify exactly one of --prod or --preview")
+		return fmt.Errorf("missing environment target flag")
+	}
 	isPreview := previewFlag
 
 	ui.Info(fmt.Sprintf("Adding %s...", key))
