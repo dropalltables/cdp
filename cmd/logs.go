@@ -73,7 +73,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	// Display logs
 	ui.Spacer()
 	logStream := ui.NewLogStream()
-	
+
 	// Process and display logs line by line
 	lines := strings.Split(logs, "\n")
 	for _, line := range lines {

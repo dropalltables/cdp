@@ -176,7 +176,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	ui.Success("Authentication configured")
 	ui.Spacer()
 	ui.KeyValue("Coolify URL", coolifyURL)
-	
+
 	if cfg.GitHubToken != "" {
 		ui.KeyValue("GitHub", "configured")
 	}

@@ -38,26 +38,27 @@ type DockerRegistry struct {
 
 // ProjectConfig stores per-project deployment configuration
 type ProjectConfig struct {
-	Name           string `json:"name"`
-	DeployMethod   string `json:"deploy_method"` // "docker" or "git"
-	ProjectUUID    string `json:"project_uuid"`
-	ServerUUID     string `json:"server_uuid"`
+	Name            string `json:"name"`
+	DeployMethod    string `json:"deploy_method"` // "docker" or "git"
+	ProjectUUID     string `json:"project_uuid"`
+	ServerUUID      string `json:"server_uuid"`
 	EnvironmentUUID string `json:"environment_uuid"` // Single environment for the app
-	AppUUID        string `json:"app_uuid"`         // Single application UUID
-	Framework      string `json:"framework"`
-	BuildPack      string `json:"build_pack,omitempty"` // nixpacks, static, dockerfile
-	InstallCommand string `json:"install_command,omitempty"`
-	BuildCommand   string `json:"build_command,omitempty"`
-	StartCommand   string `json:"start_command,omitempty"`
-	PublishDir     string `json:"publish_dir,omitempty"`
-	Port           string `json:"port,omitempty"`
-	Platform       string `json:"platform,omitempty"`       // linux/amd64, linux/arm64
-	Branch         string `json:"branch,omitempty"`         // git branch to deploy
-	Domain         string            `json:"domain,omitempty"`         // custom domain or empty for auto
-	DockerImage    string            `json:"docker_image,omitempty"`
-	GitHubRepo     string            `json:"github_repo,omitempty"`
-	GitHubPrivate  bool              `json:"github_private,omitempty"`
-	
+	AppUUID         string `json:"app_uuid"`         // Single application UUID
+	Framework       string `json:"framework"`
+	BuildPack       string `json:"build_pack,omitempty"` // nixpacks, static, dockerfile
+	InstallCommand  string `json:"install_command,omitempty"`
+	BuildCommand    string `json:"build_command,omitempty"`
+	StartCommand    string `json:"start_command,omitempty"`
+	PublishDir      string `json:"publish_dir,omitempty"`
+	Port            string `json:"port,omitempty"`
+	Platform        string `json:"platform,omitempty"` // linux/amd64, linux/arm64
+	Branch          string `json:"branch,omitempty"`   // git branch to deploy
+	Domain          string `json:"domain,omitempty"`
+	DockerImage     string `json:"docker_image,omitempty"`
+	GitHubRepo      string `json:"github_repo,omitempty"`
+	GitHubPrivate   bool   `json:"github_private,omitempty"`
+	GitHubAppUUID   string `json:"github_app_uuid,omitempty"`
+
 	// Legacy fields for migration
 	PreviewEnvUUID string            `json:"preview_env_uuid,omitempty"` // Deprecated
 	ProdEnvUUID    string            `json:"prod_env_uuid,omitempty"`    // Deprecated

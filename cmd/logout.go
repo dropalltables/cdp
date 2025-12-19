@@ -19,7 +19,7 @@ func init() {
 
 func runLogout(cmd *cobra.Command, args []string) error {
 	ui.Section("Logout")
-	
+
 	confirm, err := ui.Confirm("Remove all stored credentials?")
 	if err != nil {
 		return err

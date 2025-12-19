@@ -57,9 +57,9 @@ func init() {
 	envCmd.AddCommand(envRmCmd)
 	envCmd.AddCommand(envPullCmd)
 	envCmd.AddCommand(envPushCmd)
-	
-	// Add --preview flag for env commands to target preview deployments (from PRs)
-	envCmd.PersistentFlags().BoolVar(&previewFlag, "preview", false, "Target preview deployments (from Pull Requests)")
+
+	// Add --prod flag for env commands to target production deployments
+	envCmd.PersistentFlags().BoolVar(&prodFlag, "prod", false, "Target production environment (default is preview)")
 }
 
 func getAppUUID() (string, *api.Client, error) {
@@ -103,7 +103,7 @@ func runEnvLs(cmd *cobra.Command, args []string) error {
 		ui.Error("Failed to load environment variables")
 		return fmt.Errorf("failed to fetch environment variables: %w", err)
 	}
-	
+
 	ui.Success("Loaded environment variables")
 
 	if len(allEnvVars) == 0 {
@@ -139,7 +139,7 @@ func runEnvLs(cmd *cobra.Command, args []string) error {
 
 		rows = append(rows, []string{envLabel, env.Key, value})
 	}
-	
+
 	ui.Spacer()
 	ui.Table(headers, rows)
 	ui.Spacer()
@@ -163,8 +163,8 @@ func runEnvAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Set is_preview based on flag
-	isPreview := previewFlag
+	// Set is_preview based on flag (default is preview, --prod targets production)
+	isPreview := !prodFlag
 
 	ui.Info(fmt.Sprintf("Adding %s...", key))
 	_, err = client.CreateApplicationEnvVar(appUUID, key, value, false, isPreview)
@@ -199,8 +199,8 @@ func runEnvRm(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Find the env var by key, matching the deployment type
-	isPreview := previewFlag
+	// Find the env var by key, matching the deployment type (default is preview, --prod targets production)
+	isPreview := !prodFlag
 	ui.Info("Finding environment variable...")
 	envVars, err := client.GetApplicationEnvVars(appUUID)
 	if err != nil {
@@ -217,9 +217,9 @@ func runEnvRm(cmd *cobra.Command, args []string) error {
 	}
 
 	if envUUID == "" {
-		deploymentType := "production"
-		if previewFlag {
-			deploymentType = "preview"
+		deploymentType := "preview"
+		if prodFlag {
+			deploymentType = "production"
 		}
 		ui.Error(fmt.Sprintf("Variable '%s' not found in %s", key, deploymentType))
 		return fmt.Errorf("environment variable '%s' not found in %s", key, deploymentType)
@@ -246,9 +246,9 @@ func runEnvPull(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	deploymentType := "production"
-	if previewFlag {
-		deploymentType = "preview"
+	deploymentType := "preview"
+	if prodFlag {
+		deploymentType = "production"
 	}
 
 	ui.Section(fmt.Sprintf("Pull Environment Variables - %s", deploymentType))
@@ -316,9 +316,9 @@ func runEnvPush(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	deploymentType := "production"
-	if previewFlag {
-		deploymentType = "preview"
+	deploymentType := "preview"
+	if prodFlag {
+		deploymentType = "production"
 	}
 
 	ui.Section(fmt.Sprintf("Push Environment Variables - %s", deploymentType))
@@ -369,8 +369,8 @@ func runEnvPush(cmd *cobra.Command, args []string) error {
 	pushed := 0
 	failed := 0
 
-	// Set is_preview based on flag
-	isPreview := previewFlag
+	// Set is_preview based on flag (default is preview, --prod targets production)
+	isPreview := !prodFlag
 
 	for _, env := range envVars {
 		ui.Info(fmt.Sprintf("Pushing %s...", env.Key))
@@ -397,4 +397,3 @@ func runEnvPush(cmd *cobra.Command, args []string) error {
 
 	return nil
 }
-

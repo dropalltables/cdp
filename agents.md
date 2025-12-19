@@ -154,7 +154,7 @@ Always use `internal/ui` helpers:
 - Creates one Coolify application per project with preview deployments enabled
 - Manual `cdp` deploys always target production (PR number = 0)
 - Preview deployments are created automatically by Coolify from GitHub Pull Requests via webhooks
-- Environment variables can be scoped to production or preview using `--preview` flag in `cdp env` commands
+- Environment variables default to preview scope; use `--prod` flag in `cdp env` commands to target production
 
 **Legacy Migration:**
 - Old configs with separate preview/production apps are automatically migrated

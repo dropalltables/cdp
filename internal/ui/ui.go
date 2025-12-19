@@ -420,4 +420,3 @@ func StepProgress(current, total int, stepName string) {
 	progress := DimStyle.Render(fmt.Sprintf("[%d/%d]", current, total))
 	fmt.Printf("%s %s\n", progress, stepName)
 }
-

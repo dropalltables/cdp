@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/dropalltables/cdp/internal/api"
@@ -143,6 +144,28 @@ func runReset(cmd *cobra.Command, args []string) error {
 		ui.Warning(fmt.Sprintf("Failed to delete cdp.json: %v", err))
 	} else {
 		ui.Success("Removed cdp.json")
+	}
+
+	// Delete README.md if it exists
+	if _, err := os.Stat("README.md"); err == nil {
+		ui.Info("Removing README.md...")
+		err = os.Remove("README.md")
+		if err != nil {
+			ui.Warning(fmt.Sprintf("Failed to delete README.md: %v", err))
+		} else {
+			ui.Success("Removed README.md")
+		}
+	}
+
+	// Delete .git directory if it exists
+	if _, err := os.Stat(".git"); err == nil {
+		ui.Info("Removing .git directory...")
+		err = os.RemoveAll(".git")
+		if err != nil {
+			ui.Warning(fmt.Sprintf("Failed to delete .git: %v", err))
+		} else {
+			ui.Success("Removed .git directory")
+		}
 	}
 
 	fmt.Println()

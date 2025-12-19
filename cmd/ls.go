@@ -84,21 +84,21 @@ func runLs(cmd *cobra.Command, args []string) error {
 	}
 
 	ui.KeyValue("Status", statusDisplay)
-	
+
 	url := app.FQDN
 	if url != "" {
 		ui.KeyValue("Production URL", ui.InfoStyle.Render(url))
 	}
-	
+
 	if app.PreviewURLTemplate != "" {
 		ui.KeyValue("Preview URL Template", ui.DimStyle.Render(app.PreviewURLTemplate))
 	}
-	
+
 	if app.IsPreviewDeploymentsEnabled {
 		ui.Spacer()
 		ui.Success("Preview deployments enabled")
 	}
-	
+
 	ui.Spacer()
 	ui.KeyValue("Deploy method", projectCfg.DeployMethod)
 	ui.KeyValue("Framework", projectCfg.Framework)

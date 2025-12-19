@@ -10,22 +10,22 @@ import (
 
 // Task represents an async operation to run
 type Task struct {
-	Name         string      // Unique identifier for the task
-	ActiveName   string      // Message shown while task is running (e.g., "Loading servers...")
-	CompleteName string      // Message shown when task completes (e.g., "✓ Loaded servers")
+	Name         string       // Unique identifier for the task
+	ActiveName   string       // Message shown while task is running (e.g., "Loading servers...")
+	CompleteName string       // Message shown when task completes (e.g., "✓ Loaded servers")
 	Action       func() error // Function to execute
 }
 
 // TaskRunnerModel runs sequential tasks with spinner feedback
 type TaskRunnerModel struct {
-	tasks       []Task
-	currentIdx  int
-	spinner     spinner.Model
-	completed   []string
-	err         error
-	done        bool
-	quitting    bool
-	verbose     bool // If true, skip spinner and show completion messages immediately
+	tasks      []Task
+	currentIdx int
+	spinner    spinner.Model
+	completed  []string
+	err        error
+	done       bool
+	quitting   bool
+	verbose    bool // If true, skip spinner and show completion messages immediately
 }
 
 // NewTaskRunner creates a new task runner model

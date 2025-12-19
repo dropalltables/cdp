@@ -168,7 +168,7 @@ func runHealth(cmd *cobra.Command, args []string) error {
 		} else {
 			statusDisplay = ui.DimStyle.Render(ui.IconDot + " " + c.status)
 		}
-		
+
 		rows = append(rows, []string{
 			c.name,
 			statusDisplay,
