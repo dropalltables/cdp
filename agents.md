@@ -15,12 +15,14 @@ Commands are organized in the `cmd/` directory:
 - `deploy.go` - Core deployment logic
 - `login.go` - Authentication setup
 - `logout.go` - Clear credentials
-- `whoami.go` - Display current user info
 - `ls.go` - List projects/applications
 - `logs.go` - View deployment logs
 - `link.go` - Link to existing Coolify project
 - `env.go` - Environment variable management
 - `version.go` - Version information
+- `health.go` - Health check for Coolify server
+- `rollback.go` - Rollback to previous deployment
+- `reset.go` - Reset project configuration
 
 ### Internal Packages
 
@@ -44,6 +46,13 @@ Framework detection:
 - `detector.go` - Detects framework type and build settings
 - `types.go` - Framework information structures
 
+#### `internal/deploy/`
+Deployment orchestration:
+- `setup.go` - First-time project setup wizard
+- `git.go` - Git-based deployment logic
+- `docker.go` - Docker-based deployment logic
+- `watcher.go` - File watcher for development mode
+
 #### `internal/docker/`
 Docker operations:
 - `build.go` - Docker image building with framework-specific Dockerfiles
@@ -58,8 +67,24 @@ Git operations:
 #### `internal/ui/`
 User interface:
 - `ui.go` - Terminal UI helpers (spinners, prompts, colors)
+- `task_runner.go` - BubbleTea task runner for async operations with spinner feedback
+- `messages.go` - Message types for BubbleTea communication
 
 ## Key Patterns
+
+### Code Organization
+
+**Recent Refactoring (Dec 2024):**
+The codebase underwent a major refactoring to improve separation of concerns:
+- Deployment orchestration logic moved from `cmd/deploy.go` to `internal/deploy/` package
+- Setup wizard extracted to `internal/deploy/setup.go` for better reusability
+- Git deployment logic isolated in `internal/deploy/git.go`
+- Docker deployment logic isolated in `internal/deploy/docker.go`
+- File watcher functionality separated into `internal/deploy/watcher.go`
+- Task runner with BubbleTea integration added to `internal/ui/task_runner.go` for async operations
+- Removed `cmd/whoami.go` - functionality was redundant
+
+This improves maintainability by keeping command files focused on CLI argument parsing and delegating business logic to dedicated packages.
 
 ### Configuration Flow
 
@@ -95,14 +120,42 @@ User interface:
 
 ### First-Time Setup Flow
 
-When `cdp.json` doesn't exist:
-1. Detect framework
-2. Allow editing build settings
-3. Choose deployment method
-4. Select server
-5. Select or create project
-6. Create production environment
-7. Save configuration
+When `cdp.json` doesn't exist, the deployment orchestration is handled by `internal/deploy/setup.go`:
+1. Framework detection - Analyzes project files to determine framework type
+2. Build settings customization - Option to edit install/build/start commands
+3. Deployment method selection - Choose between Git or Docker deployment
+4. Server selection - Select from available Coolify servers
+5. Project selection/creation - Use existing project or create new one
+6. Advanced configuration - Port, platform, branch, domain settings
+7. Configuration save - Generates and saves `cdp.json`
+
+The setup wizard uses a step-by-step progress indicator (1/5, 2/5, etc.) and the task runner for async operations with spinner feedback.
+
+### Async Task Runner Pattern
+
+For operations that may take time (API calls, network requests), use the task runner pattern:
+
+```go
+err := ui.RunTasks([]ui.Task{
+    {
+        Name:         "task-id",
+        ActiveName:   "Loading data...",
+        CompleteName: "✓ Loaded data",
+        Action: func() error {
+            // Your async operation here
+            return someAsyncOperation()
+        },
+    },
+})
+```
+
+The task runner:
+- Displays a spinner while tasks execute
+- Shows completion messages when tasks finish
+- Handles errors gracefully
+- Supports sequential task execution
+- Can run in verbose mode (no spinner, immediate output)
+- Uses BubbleTea for terminal UI management
 
 ## Common Tasks
 
@@ -131,8 +184,15 @@ Always use `internal/ui` helpers:
 - `ui.Info()` - Informational messages
 - `ui.Success()` - Success messages
 - `ui.Warn()` - Warnings
-- `ui.NewSpinner()` - Loading indicators
+- `ui.Error()` - Error messages
 - `ui.Select()` / `ui.Input()` - User prompts
+- `ui.RunTasks()` - Execute async operations with spinner feedback
+- `ui.StepProgress()` - Display step progress (e.g., "Step 1/5")
+- `ui.Divider()` - Visual separator
+- `ui.Spacer()` - Vertical spacing
+- `ui.KeyValue()` - Display key-value pairs
+- `ui.List()` - Display bulleted lists
+- `ui.NextSteps()` - Display next steps to user
 
 ## Important Considerations
 
@@ -172,11 +232,13 @@ Always use `internal/ui` helpers:
 - API client: `internal/api/`
 - Config: `internal/config/`
 - Framework detection: `internal/detect/`
+- Deployment orchestration: `internal/deploy/`
 - Docker ops: `internal/docker/`
 - Git ops: `internal/git/`
 - UI helpers: `internal/ui/`
 - Entry point: `main.go`
 - Dependencies: `go.mod`
+- Build automation: `Makefile`
 
 ## Making Changes
 
@@ -187,10 +249,20 @@ Always use `internal/ui` helpers:
 5. **Use UI helpers** - Maintain consistent user experience
 6. **Test manually** - Verify commands work end-to-end
 
+## Build System
+
+The project includes a Makefile for build automation:
+- `make build` - Build binary to `./bin/cdp`
+- `make install` - Install to `$GOPATH/bin`
+- `make clean` - Remove build artifacts
+- `make test` - Run tests
+- `make help` - Show available targets
+
 ## Dependencies
 
 Key external packages:
 - `github.com/spf13/cobra` - CLI framework
 - `github.com/charmbracelet/huh` - Interactive prompts
+- `github.com/charmbracelet/bubbletea` - Terminal UI framework for task runner
 - `github.com/charmbracelet/lipgloss` - Terminal styling
-- `github.com/briandowns/spinner` - Loading indicators
+- `github.com/charmbracelet/bubbles` - BubbleTea components (spinner)
