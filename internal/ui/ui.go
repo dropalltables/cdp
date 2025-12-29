@@ -8,74 +8,79 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/charmbracelet/huh"
+	"github.com/AlecAivazis/survey/v2"
+	"github.com/AlecAivazis/survey/v2/terminal"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/log"
 )
 
 var debugMode = os.Getenv("CDP_DEBUG") != ""
 
 func trace(fn string) {
 	if debugMode {
-		// Get caller info
 		_, file, line, _ := runtime.Caller(2)
 		fmt.Fprintf(os.Stderr, "[UI_DEBUG] %s (called from %s:%d)\n", fn, file, line)
 	}
 }
 
-// Colors
+// GitHub CLI-style colors (ANSI base 16)
 var (
-	ColorSuccess = lipgloss.Color("#00D68F")
-	ColorError   = lipgloss.Color("#FF4949")
-	ColorWarning = lipgloss.Color("#FBCA04")
-	ColorInfo    = lipgloss.Color("#3291FF")
-	ColorDim     = lipgloss.Color("#666666")
-	ColorCode    = lipgloss.Color("#888888")
-	ColorBorder  = lipgloss.Color("#333333")
+	ColorCyan    = lipgloss.Color("6")
+	ColorGreen   = lipgloss.Color("2")
+	ColorRed     = lipgloss.Color("1")
+	ColorYellow  = lipgloss.Color("3")
+	ColorBlue    = lipgloss.Color("4")
+	ColorMagenta = lipgloss.Color("5")
+	ColorGray    = lipgloss.Color("8")
+	ColorWhite   = lipgloss.Color("7")
 )
 
-// Styles for inline rendering
+// Styles
 var (
-	SuccessStyle = lipgloss.NewStyle().Foreground(ColorSuccess)
-	ErrorStyle   = lipgloss.NewStyle().Foreground(ColorError)
-	WarningStyle = lipgloss.NewStyle().Foreground(ColorWarning)
-	InfoStyle    = lipgloss.NewStyle().Foreground(ColorInfo)
-	DimStyle     = lipgloss.NewStyle().Foreground(ColorDim)
+	CyanStyle    = lipgloss.NewStyle().Foreground(ColorCyan)
+	GreenStyle   = lipgloss.NewStyle().Foreground(ColorGreen)
+	RedStyle     = lipgloss.NewStyle().Foreground(ColorRed)
+	YellowStyle  = lipgloss.NewStyle().Foreground(ColorYellow)
+	BlueStyle    = lipgloss.NewStyle().Foreground(ColorBlue)
+	MagentaStyle = lipgloss.NewStyle().Foreground(ColorMagenta)
+	GrayStyle    = lipgloss.NewStyle().Foreground(ColorGray)
 	BoldStyle    = lipgloss.NewStyle().Bold(true)
-	CodeStyle    = lipgloss.NewStyle().Foreground(ColorCode)
+
+	// Semantic aliases
+	SuccessStyle = GreenStyle
+	ErrorStyle   = RedStyle
+	WarningStyle = YellowStyle
+	InfoStyle    = CyanStyle
+	DimStyle     = GrayStyle
+	CodeStyle    = GrayStyle
 )
 
-// Icons
+// Icons (ASCII only)
 const (
-	IconSuccess = "✓"
-	IconError   = "✗"
-	IconWarning = "!"
-	IconInfo    = "•"
-	IconDot     = "•"
-	IconArrow   = "→"
+	IconSuccess  = "-"
+	IconError    = "X"
+	IconWarning  = "!"
+	IconQuestion = "?"
+	IconDot      = "*"
+	IconArrow    = "->"
 )
 
-// Logger instance
-var logger = log.NewWithOptions(os.Stderr, log.Options{
-	ReportTimestamp: false,
+// Survey icons config for GitHub CLI style
+var surveyIcons = survey.WithIcons(func(icons *survey.IconSet) {
+	icons.Question.Text = "?"
+	icons.Question.Format = "cyan+b"
+	icons.SelectFocus.Text = ">"
+	icons.SelectFocus.Format = "cyan+b"
 })
 
-func init() {
-	// Configure logger styles
-	styles := log.DefaultStyles()
-	styles.Levels[log.InfoLevel] = lipgloss.NewStyle().
-		SetString("•").
-		Foreground(ColorInfo)
-	styles.Levels[log.WarnLevel] = lipgloss.NewStyle().
-		SetString("!").
-		Foreground(ColorWarning)
-	styles.Levels[log.ErrorLevel] = lipgloss.NewStyle().
-		SetString("✗").
-		Foreground(ColorError)
-	logger.SetStyles(styles)
+// LogChoice logs a prompt choice without user interaction (for auto-selections)
+func LogChoice(question, answer string) {
+	prefix := CyanStyle.Bold(true).Render(IconQuestion)
+	q := BoldStyle.Render(question)
+	a := CyanStyle.Render(answer)
+	fmt.Printf("%s %s %s\n", prefix, q, a)
 }
 
-// Output functions using charmbracelet/log
+// --- Output Functions ---
 
 func Print(msg string) {
 	trace("Print")
@@ -84,22 +89,22 @@ func Print(msg string) {
 
 func Success(msg string) {
 	trace("Success")
-	fmt.Println(SuccessStyle.Render(IconSuccess + " " + msg))
+	fmt.Println(GreenStyle.Render(IconSuccess) + " " + msg)
 }
 
 func Error(msg string) {
 	trace("Error")
-	logger.Error(msg)
+	fmt.Println(RedStyle.Render(IconError) + " " + msg)
 }
 
 func Warning(msg string) {
 	trace("Warning")
-	logger.Warn(msg)
+	fmt.Println(YellowStyle.Render(IconWarning) + " " + msg)
 }
 
 func Info(msg string) {
 	trace("Info")
-	logger.Info(msg)
+	fmt.Println(CyanStyle.Render(IconDot) + " " + msg)
 }
 
 func Dim(msg string) {
@@ -118,28 +123,18 @@ func Spacer() {
 }
 
 func Divider() {
-	width := getTerminalWidth()
-	if width > 80 {
-		width = 80 // Cap at 80 for readability
-	} else if width < 40 {
-		width = 40 // Minimum width
-	}
-	fmt.Println(DimStyle.Render(strings.Repeat("─", width)))
+	// Deprecated - use Spacer() instead
+	Spacer()
 }
 
-// getTerminalWidth returns the terminal width, defaulting to 60 if unavailable
 func getTerminalWidth() int {
-	// Try to get terminal size from standard library
 	if width, _, err := getTerminalSize(); err == nil && width > 0 {
 		return width
 	}
-	return 60 // Default fallback
+	return 60
 }
 
-// getTerminalSize returns the terminal width and height
 func getTerminalSize() (int, int, error) {
-	// This is a simple implementation that works on Unix-like systems
-	// For more robust cross-platform support, consider using golang.org/x/term
 	cmd := exec.Command("stty", "size")
 	cmd.Stdin = os.Stdin
 	out, err := cmd.Output()
@@ -156,29 +151,28 @@ func Code(msg string) {
 }
 
 func Section(title string) {
-	fmt.Println()
-	fmt.Println(BoldStyle.Render(title))
-	fmt.Println()
+	// Deprecated - sections removed for cleaner output
+	// Just add a spacer if needed
+	Spacer()
 }
 
 func KeyValue(key, value string) {
-	fmt.Printf("%s %s\n", DimStyle.Render(key+":"), value)
+	// Simple inline display without indentation
+	fmt.Printf("%s: %s\n", key, value)
 }
 
 func List(items []string) {
 	for _, item := range items {
-		fmt.Println(DimStyle.Render("  " + IconDot + " " + item))
+		fmt.Println("  " + IconDot + " " + item)
 	}
 }
 
-// Table renders a simple table
 func Table(headers []string, rows [][]string) {
 	if len(rows) == 0 {
 		Dim("No data to display")
 		return
 	}
 
-	// Calculate column widths
 	widths := make([]int, len(headers))
 	for i, h := range headers {
 		widths[i] = len(h)
@@ -191,18 +185,15 @@ func Table(headers []string, rows [][]string) {
 		}
 	}
 
-	// Build header row
 	headerLine := ""
 	for i, h := range headers {
 		if i > 0 {
 			headerLine += "  "
 		}
-		headerLine += BoldStyle.Render(fmt.Sprintf("%-*s", widths[i], h))
+		headerLine += fmt.Sprintf("%-*s", widths[i], h)
 	}
 	fmt.Println(headerLine)
 
-	// Build separator
-	sepLine := ""
 	totalWidth := 0
 	for i, w := range widths {
 		totalWidth += w
@@ -210,10 +201,8 @@ func Table(headers []string, rows [][]string) {
 			totalWidth += 2
 		}
 	}
-	sepLine = strings.Repeat("─", totalWidth)
-	fmt.Println(DimStyle.Render(sepLine))
+	fmt.Println(strings.Repeat("-", totalWidth))
 
-	// Print rows
 	for _, row := range rows {
 		rowLine := ""
 		for i, cell := range row {
@@ -228,28 +217,56 @@ func Table(headers []string, rows [][]string) {
 	}
 }
 
-// Prompt functions using huh
+// --- Prompt Functions (GitHub CLI style using survey) ---
+
+func Confirm(prompt string) (bool, error) {
+	var value bool
+	err := survey.AskOne(&survey.Confirm{
+		Message: prompt,
+		Default: false,
+	}, &value, surveyIcons)
+
+	if err != nil {
+		if err == terminal.InterruptErr {
+			return false, fmt.Errorf("interrupted")
+		}
+		return false, err
+	}
+
+	return value, nil
+}
 
 func Input(prompt, placeholder string) (string, error) {
 	var value string
-	err := huh.NewInput().
-		Title(prompt).
-		Placeholder(placeholder).
-		Value(&value).
-		Run()
-	return value, err
+	err := survey.AskOne(&survey.Input{
+		Message: prompt,
+		Default: placeholder,
+	}, &value, surveyIcons)
+
+	if err != nil {
+		if err == terminal.InterruptErr {
+			return "", fmt.Errorf("interrupted")
+		}
+		return "", err
+	}
+
+	return value, nil
 }
 
 func InputWithDefault(prompt, defaultValue string) (string, error) {
 	var value string
-	err := huh.NewInput().
-		Title(prompt).
-		Placeholder(defaultValue).
-		Value(&value).
-		Run()
+	err := survey.AskOne(&survey.Input{
+		Message: prompt,
+		Default: defaultValue,
+	}, &value, surveyIcons)
+
 	if err != nil {
+		if err == terminal.InterruptErr {
+			return "", fmt.Errorf("interrupted")
+		}
 		return "", err
 	}
+
 	if value == "" {
 		return defaultValue, nil
 	}
@@ -258,23 +275,18 @@ func InputWithDefault(prompt, defaultValue string) (string, error) {
 
 func Password(prompt string) (string, error) {
 	var value string
-	err := huh.NewInput().
-		Title(prompt).
-		EchoMode(huh.EchoModePassword).
-		Value(&value).
-		Run()
-	return value, err
-}
+	err := survey.AskOne(&survey.Password{
+		Message: prompt,
+	}, &value, surveyIcons)
 
-func Confirm(prompt string) (bool, error) {
-	var value bool
-	err := huh.NewConfirm().
-		Title(prompt).
-		Affirmative("Yes").
-		Negative("No").
-		Value(&value).
-		Run()
-	return value, err
+	if err != nil {
+		if err == terminal.InterruptErr {
+			return "", fmt.Errorf("interrupted")
+		}
+		return "", err
+	}
+
+	return value, nil
 }
 
 func Select(prompt string, options []string) (string, error) {
@@ -283,17 +295,19 @@ func Select(prompt string, options []string) (string, error) {
 	}
 
 	var value string
-	opts := make([]huh.Option[string], len(options))
-	for i, opt := range options {
-		opts[i] = huh.NewOption(opt, opt)
+	err := survey.AskOne(&survey.Select{
+		Message: prompt,
+		Options: options,
+	}, &value, surveyIcons)
+
+	if err != nil {
+		if err == terminal.InterruptErr {
+			return "", fmt.Errorf("interrupted")
+		}
+		return "", err
 	}
 
-	err := huh.NewSelect[string]().
-		Title(prompt).
-		Options(opts...).
-		Value(&value).
-		Run()
-	return value, err
+	return value, nil
 }
 
 func SelectWithKeys(prompt string, options map[string]string) (string, error) {
@@ -301,18 +315,28 @@ func SelectWithKeys(prompt string, options map[string]string) (string, error) {
 		return "", fmt.Errorf("no options provided")
 	}
 
-	var value string
-	opts := make([]huh.Option[string], 0, len(options))
+	// Build display list and key mapping
+	displayOptions := make([]string, 0, len(options))
+	keyMap := make(map[string]string)
 	for key, display := range options {
-		opts = append(opts, huh.NewOption(display, key))
+		displayOptions = append(displayOptions, display)
+		keyMap[display] = key
 	}
 
-	err := huh.NewSelect[string]().
-		Title(prompt).
-		Options(opts...).
-		Value(&value).
-		Run()
-	return value, err
+	var selected string
+	err := survey.AskOne(&survey.Select{
+		Message: prompt,
+		Options: displayOptions,
+	}, &selected, surveyIcons)
+
+	if err != nil {
+		if err == terminal.InterruptErr {
+			return "", fmt.Errorf("interrupted")
+		}
+		return "", err
+	}
+
+	return keyMap[selected], nil
 }
 
 func MultiSelect(prompt string, options []string) ([]string, error) {
@@ -321,21 +345,19 @@ func MultiSelect(prompt string, options []string) ([]string, error) {
 	}
 
 	var values []string
-	opts := make([]huh.Option[string], len(options))
-	for i, opt := range options {
-		opts[i] = huh.NewOption(opt, opt)
+	err := survey.AskOne(&survey.MultiSelect{
+		Message: prompt,
+		Options: options,
+	}, &values, surveyIcons)
+
+	if err != nil {
+		if err == terminal.InterruptErr {
+			return nil, fmt.Errorf("interrupted")
+		}
+		return nil, err
 	}
 
-	err := huh.NewMultiSelect[string]().
-		Title(prompt).
-		Options(opts...).
-		Value(&values).
-		Run()
-	return values, err
-}
-
-func Form(groups ...*huh.Group) error {
-	return huh.NewForm(groups...).Run()
+	return values, nil
 }
 
 func ConfirmAction(action, resource string) (bool, error) {
@@ -344,7 +366,8 @@ func ConfirmAction(action, resource string) (bool, error) {
 	return Confirm(fmt.Sprintf("Are you sure you want to %s?", action))
 }
 
-// LogStream for real-time log viewing
+// --- Log Stream ---
+
 type LogStream struct {
 	writer io.Writer
 }
@@ -361,7 +384,8 @@ func (l *LogStream) WriteRaw(msg string) {
 	fmt.Fprint(l.writer, msg)
 }
 
-// CmdOutput is a writer that styles command output as dimmed streamed logs
+// --- Command Output ---
+
 type CmdOutput struct{}
 
 func NewCmdOutput() *CmdOutput {
@@ -380,7 +404,8 @@ func (c *CmdOutput) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// Status line
+// --- Status Line ---
+
 type Status struct {
 	message string
 }
@@ -398,13 +423,13 @@ func (s *Status) Done() {
 	fmt.Println()
 }
 
-// Helper functions
+// --- Helper Functions ---
 
 func NextSteps(steps []string) {
 	trace("NextSteps")
-	Dim("Next steps:")
+	fmt.Println("Next steps:")
 	for _, step := range steps {
-		fmt.Println(DimStyle.Render("  " + IconArrow + " " + step))
+		fmt.Println("  " + IconArrow + " " + step)
 	}
 }
 
@@ -416,7 +441,7 @@ func ErrorWithSuggestion(err error, suggestion string) {
 	}
 }
 
+// StepProgress is deprecated - use LogChoice instead
 func StepProgress(current, total int, stepName string) {
-	progress := DimStyle.Render(fmt.Sprintf("[%d/%d]", current, total))
-	fmt.Printf("%s %s\n", progress, stepName)
+	LogChoice(fmt.Sprintf("Step %d/%d", current, total), stepName)
 }

@@ -32,9 +32,6 @@ func DeployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 	}
 
 	// Execute deployment tasks
-	ui.Spacer()
-	ui.Divider()
-
 	tasks := buildGitDeploymentTasks(client, ghClient, globalCfg, projectCfg, user.Login, needsRepoCreation, verbose)
 
 	if err := ui.RunTasksVerbose(tasks, verbose); err != nil {
@@ -75,7 +72,7 @@ func getGitHubUser(ghClient *git.GitHubClient, verbose bool) (*git.User, error) 
 		{
 			Name:         "github-check",
 			ActiveName:   "Checking GitHub connection...",
-			CompleteName: "✓ Connected to GitHub",
+			CompleteName: "Connected to GitHub",
 			Action: func() error {
 				var err error
 				user, err = ghClient.GetUser()
@@ -95,31 +92,20 @@ func handleGitHubRepoSetup(ghClient *git.GitHubClient, projectCfg *config.Projec
 		return nil
 	}
 
-	// Show section header
-	ui.Spacer()
-	ui.Divider()
-	ui.Bold("Git Deployment")
-	ui.Spacer()
-	ui.Bold("GitHub Repository Setup")
-	ui.Spacer()
-
 	// Ask for repo name
-	repoName, err := ui.InputWithDefault("Repository name:", projectCfg.GitHubRepo)
+	repoName, err := ui.InputWithDefault("Repository name", projectCfg.GitHubRepo)
 	if err != nil {
 		return err
 	}
 	projectCfg.GitHubRepo = repoName
-	fullRepoName := fmt.Sprintf("%s/%s", username, repoName)
-	ui.Dim(fmt.Sprintf("→ %s", fullRepoName))
 
 	// Ask for visibility
 	visibilityOptions := []string{"Private", "Public"}
-	visibility, err := ui.Select("Repository visibility:", visibilityOptions)
+	visibility, err := ui.Select("Repository visibility", visibilityOptions)
 	if err != nil {
 		return err
 	}
 	projectCfg.GitHubPrivate = (visibility == "Private")
-	ui.Dim(fmt.Sprintf("→ %s", visibility))
 
 	return nil
 }
@@ -130,22 +116,13 @@ func handleGitHubAppSelection(client *api.Client, projectCfg *config.ProjectConf
 		return nil
 	}
 
-	// Show section header if not already shown
-	if !needsRepoCreation {
-		ui.Spacer()
-		ui.Divider()
-		ui.Bold("Git Deployment")
-	} else {
-		ui.Spacer()
-	}
-
 	// Load GitHub Apps
 	var githubApps []api.GitHubApp
 	err := ui.RunTasksVerbose([]ui.Task{
 		{
 			Name:         "load-apps",
 			ActiveName:   "Loading GitHub Apps...",
-			CompleteName: "✓ Loaded GitHub Apps",
+			CompleteName: "Loaded GitHub Apps",
 			Action: func() error {
 				var err error
 				githubApps, err = client.ListGitHubApps()
@@ -155,23 +132,21 @@ func handleGitHubAppSelection(client *api.Client, projectCfg *config.ProjectConf
 	}, verbose)
 	if err != nil {
 		ui.Error("Failed to load GitHub Apps")
-		ui.Spacer()
-		ui.Dim("Configure a GitHub App in Coolify: Sources → GitHub App")
+		ui.Dim("Configure a GitHub App in Coolify: Sources -> GitHub App")
 		return fmt.Errorf("failed to list GitHub Apps: %w", err)
 	}
 
 	if len(githubApps) == 0 {
 		ui.Error("No GitHub Apps configured in Coolify")
-		ui.Spacer()
-		ui.Dim("Add a GitHub App in Coolify: Sources → GitHub App")
+		ui.Dim("Add a GitHub App in Coolify: Sources -> GitHub App")
 		return fmt.Errorf("no GitHub Apps configured")
 	}
 
 	// Select GitHub App
-	var githubAppUUID, selectedAppName string
+	var githubAppUUID string
 	if len(githubApps) == 1 {
 		githubAppUUID = githubApps[0].UUID
-		selectedAppName = githubApps[0].Name
+		ui.LogChoice("GitHub App", githubApps[0].Name)
 	} else {
 		appOptions := make(map[string]string)
 		for _, app := range githubApps {
@@ -181,13 +156,11 @@ func handleGitHubAppSelection(client *api.Client, projectCfg *config.ProjectConf
 			}
 			appOptions[app.UUID] = displayName
 		}
-		githubAppUUID, err = ui.SelectWithKeys("Select GitHub App:", appOptions)
+		githubAppUUID, err = ui.SelectWithKeys("Select GitHub App", appOptions)
 		if err != nil {
 			return err
 		}
-		selectedAppName = appOptions[githubAppUUID]
 	}
-	ui.Dim(fmt.Sprintf("→ %s", selectedAppName))
 
 	// Save the selected GitHub App UUID
 	projectCfg.GitHubAppUUID = githubAppUUID
@@ -247,7 +220,7 @@ func createGitHubRepoTask(ghClient *git.GitHubClient, projectCfg *config.Project
 	return ui.Task{
 		Name:         "create-repo",
 		ActiveName:   "Creating GitHub repository...",
-		CompleteName: "✓ Created GitHub repository",
+		CompleteName: "Created GitHub repository",
 		Action: func() error {
 			// Create README if it doesn't exist
 			_ = CreateReadmeIfMissing(projectCfg)
@@ -270,7 +243,7 @@ func initGitTask() ui.Task {
 	return ui.Task{
 		Name:         "init-git",
 		ActiveName:   "Initializing git repository...",
-		CompleteName: "✓ Initialized git repository",
+		CompleteName: "Initialized git repository",
 		Action: func() error {
 			if err := git.Init("."); err != nil {
 				return fmt.Errorf("failed to initialize git repository: %w", err)
@@ -284,7 +257,7 @@ func pushCodeTask(ghClient *git.GitHubClient, globalCfg *config.GlobalConfig, pr
 	return ui.Task{
 		Name:         "push-code",
 		ActiveName:   "Pushing code to GitHub...",
-		CompleteName: "✓ Pushed code to GitHub",
+		CompleteName: "Pushed code to GitHub",
 		Action: func() error {
 			fullRepoName := fmt.Sprintf("%s/%s", username, projectCfg.GitHubRepo)
 
@@ -318,7 +291,7 @@ func createGitAppTask(client *api.Client, projectCfg *config.ProjectConfig, user
 	return ui.Task{
 		Name:         "create-app",
 		ActiveName:   "Creating Coolify application...",
-		CompleteName: "✓ Created Coolify application",
+		CompleteName: "Created Coolify application",
 		Action: func() error {
 			buildPack := projectCfg.BuildPack
 			if buildPack == "" {
