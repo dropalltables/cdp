@@ -16,8 +16,6 @@ import (
 
 // FirstTimeSetup walks the user through initial project configuration.
 func FirstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config.ProjectConfig, error) {
-	ui.Spacer()
-
 	// Detect framework
 	framework, err := detectFramework()
 	if err != nil {
@@ -61,21 +59,11 @@ func FirstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config
 	)
 
 	// Save project config
-	err = ui.RunTasks([]ui.Task{
-		{
-			Name:         "save-config",
-			ActiveName:   "Saving configuration...",
-			CompleteName: "Saved configuration",
-			Action: func() error {
-				return config.SaveProject(projectCfg)
-			},
-		},
-	})
+	err = config.SaveProject(projectCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	ui.Spacer()
 	ui.Success("Project configured successfully")
 
 	return projectCfg, nil
@@ -116,6 +104,8 @@ func detectFramework() (*detect.FrameworkInfo, error) {
 		ui.KeyValue("Output", framework.PublishDirectory)
 	}
 
+	ui.Spacer()
+
 	editSettings, err := ui.Confirm("Customize build settings?")
 	if err != nil {
 		return nil, err
@@ -129,18 +119,17 @@ func detectFramework() (*detect.FrameworkInfo, error) {
 
 		// Show updated configuration
 		ui.Spacer()
-		ui.Dim("Updated Configuration:")
 		if framework.InstallCommand != "" {
-			ui.KeyValue("  Install", ui.CodeStyle.Render(framework.InstallCommand))
+			ui.KeyValue("Install", ui.CodeStyle.Render(framework.InstallCommand))
 		}
 		if framework.BuildCommand != "" {
-			ui.KeyValue("  Build", ui.CodeStyle.Render(framework.BuildCommand))
+			ui.KeyValue("Build", ui.CodeStyle.Render(framework.BuildCommand))
 		}
 		if framework.StartCommand != "" {
-			ui.KeyValue("  Start", ui.CodeStyle.Render(framework.StartCommand))
+			ui.KeyValue("Start", ui.CodeStyle.Render(framework.StartCommand))
 		}
 		if framework.PublishDirectory != "" {
-			ui.KeyValue("  Publish dir", framework.PublishDirectory)
+			ui.KeyValue("Publish dir", framework.PublishDirectory)
 		}
 	}
 

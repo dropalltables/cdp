@@ -50,6 +50,13 @@ var envPushCmd = &cobra.Command{
 	RunE:  runEnvPush,
 }
 
+var envResetCmd = &cobra.Command{
+	Use:   "reset",
+	Short: "Delete all environment variables",
+	Long:  "Delete all environment variables for the specified deployment (preview by default, use --prod for production).",
+	RunE:  runEnvReset,
+}
+
 func init() {
 	rootCmd.AddCommand(envCmd)
 	envCmd.AddCommand(envLsCmd)
@@ -57,6 +64,7 @@ func init() {
 	envCmd.AddCommand(envRmCmd)
 	envCmd.AddCommand(envPullCmd)
 	envCmd.AddCommand(envPushCmd)
+	envCmd.AddCommand(envResetCmd)
 
 	// Add --prod flag for env commands to target production deployments
 	envCmd.PersistentFlags().BoolVar(&prodFlag, "prod", false, "Target production environment (default is preview)")
@@ -95,24 +103,26 @@ func runEnvLs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	ui.Section("Environment Variables")
-
-	ui.Info("Loading environment variables...")
-	allEnvVars, err := client.GetApplicationEnvVars(appUUID)
+	var allEnvVars []api.EnvVar
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "load-env-vars",
+			ActiveName:   "Loading environment variables...",
+			CompleteName: "Loaded environment variables",
+			Action: func() error {
+				var err error
+				allEnvVars, err = client.GetApplicationEnvVars(appUUID)
+				return err
+			},
+		},
+	})
 	if err != nil {
 		ui.Error("Failed to load environment variables")
 		return fmt.Errorf("failed to fetch environment variables: %w", err)
 	}
 
-	ui.Success("Loaded environment variables")
-
 	if len(allEnvVars) == 0 {
-		ui.Spacer()
-		ui.Dim("No environment variables configured")
-		ui.NextSteps([]string{
-			fmt.Sprintf("Run '%s env add KEY=value' to add variables", execName()),
-			fmt.Sprintf("Run '%s env push' to upload from .env file", execName()),
-		})
+		ui.Warning("No environment variables configured")
 		return nil
 	}
 
@@ -143,7 +153,7 @@ func runEnvLs(cmd *cobra.Command, args []string) error {
 	ui.Spacer()
 	ui.Table(headers, rows)
 	ui.Spacer()
-	ui.Dim(fmt.Sprintf("Total: %d variables", len(allEnvVars)))
+	ui.Info(fmt.Sprintf("Total: %d variables", len(allEnvVars)))
 
 	return nil
 }
@@ -166,17 +176,21 @@ func runEnvAdd(cmd *cobra.Command, args []string) error {
 	// Set is_preview based on flag (default is preview, --prod targets production)
 	isPreview := !prodFlag
 
-	ui.Info(fmt.Sprintf("Adding %s...", key))
-	_, err = client.CreateApplicationEnvVar(appUUID, key, value, false, isPreview)
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "add-env-var",
+			ActiveName:   fmt.Sprintf("Adding %s...", key),
+			CompleteName: fmt.Sprintf("Added %s", key),
+			Action: func() error {
+				_, err := client.CreateApplicationEnvVar(appUUID, key, value, false, isPreview)
+				return err
+			},
+		},
+	})
 	if err != nil {
 		ui.Error(fmt.Sprintf("Failed to add %s", key))
 		return fmt.Errorf("failed to add environment variable: %w", err)
 	}
-	ui.Success(fmt.Sprintf("Added %s", key))
-
-	ui.NextSteps([]string{
-		fmt.Sprintf("Redeploy with '%s' for changes to take effect", execName()),
-	})
 
 	return nil
 }
@@ -189,34 +203,23 @@ func runEnvRm(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Confirm deletion
-	confirmed, err := ui.ConfirmAction("remove environment variable", key)
-	if err != nil {
-		return err
-	}
-	if !confirmed {
-		ui.Dim("Cancelled")
-		return nil
-	}
-
 	// Find the env var by key, matching the deployment type (default is preview, --prod targets production)
 	isPreview := !prodFlag
-	ui.Info("Finding environment variable...")
 	envVars, err := client.GetApplicationEnvVars(appUUID)
 	if err != nil {
 		ui.Error("Failed to fetch environment variables")
 		return fmt.Errorf("failed to fetch environment variables: %w", err)
 	}
 
-	var envUUID string
+	var targetEnv *api.EnvVar
 	for _, env := range envVars {
 		if env.Key == key && env.IsPreview == isPreview {
-			envUUID = env.UUID
+			targetEnv = &env
 			break
 		}
 	}
 
-	if envUUID == "" {
+	if targetEnv == nil {
 		deploymentType := "preview"
 		if prodFlag {
 			deploymentType = "production"
@@ -225,17 +228,58 @@ func runEnvRm(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("environment variable '%s' not found in %s", key, deploymentType)
 	}
 
-	ui.Info(fmt.Sprintf("Removing %s...", key))
-	err = client.DeleteApplicationEnvVar(appUUID, envUUID)
-	if err != nil {
-		ui.Error(fmt.Sprintf("Failed to remove %s", key))
-		return fmt.Errorf("failed to remove environment variable: %w", err)
-	}
-	ui.Success(fmt.Sprintf("Removed %s", key))
+	// Display variable to be deleted
+	ui.Warning("This will delete 1 environment variable")
+	ui.Spacer()
 
-	ui.NextSteps([]string{
-		fmt.Sprintf("Redeploy with '%s' for changes to take effect", execName()),
+	headers := []string{"Environment", "Key", "Value"}
+	rows := [][]string{}
+
+	value := targetEnv.Value
+	// Mask sensitive values
+	if len(value) > 50 {
+		value = value[:20] + "..." + value[len(value)-10:]
+	}
+	if strings.Contains(strings.ToLower(targetEnv.Key), "secret") ||
+		strings.Contains(strings.ToLower(targetEnv.Key), "password") ||
+		strings.Contains(strings.ToLower(targetEnv.Key), "token") {
+		value = "••••••••"
+	}
+
+	envLabel := "Production"
+	if targetEnv.IsPreview {
+		envLabel = "Preview"
+	}
+
+	rows = append(rows, []string{envLabel, targetEnv.Key, value})
+
+	ui.Table(headers, rows)
+	ui.Spacer()
+
+	// Confirm deletion
+	confirmed, err := ui.Confirm("Are you sure?")
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return nil
+	}
+
+	// Delete variable
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "delete-env-var",
+			ActiveName:   "Deleting environment variable...",
+			CompleteName: "Deleted 1 variable",
+			Action: func() error {
+				return client.DeleteApplicationEnvVar(appUUID, targetEnv.UUID)
+			},
+		},
 	})
+	if err != nil {
+		ui.Error("Failed to delete environment variable")
+		return err
+	}
 
 	return nil
 }
@@ -246,54 +290,109 @@ func runEnvPull(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	deploymentType := "preview"
-	if prodFlag {
-		deploymentType = "production"
-	}
-
-	ui.Section(fmt.Sprintf("Pull Environment Variables - %s", deploymentType))
-
-	ui.Info("Fetching environment variables...")
-	envVars, err := client.GetApplicationEnvVars(appUUID)
+	var allEnvVars []api.EnvVar
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "fetch-env-vars",
+			ActiveName:   "Fetching environment variables...",
+			CompleteName: "Fetched environment variables",
+			Action: func() error {
+				var err error
+				allEnvVars, err = client.GetApplicationEnvVars(appUUID)
+				return err
+			},
+		},
+	})
 	if err != nil {
 		ui.Error("Failed to fetch environment variables")
 		return fmt.Errorf("failed to fetch environment variables: %w", err)
 	}
-	ui.Success("Fetched environment variables")
+
+	// Filter by deployment type (default is preview, --prod targets production)
+	isPreview := !prodFlag
+	var envVars []api.EnvVar
+	for _, env := range allEnvVars {
+		if env.IsPreview == isPreview {
+			envVars = append(envVars, env)
+		}
+	}
 
 	if len(envVars) == 0 {
-		ui.Warning("No environment variables to pull")
+		deploymentType := "preview"
+		if prodFlag {
+			deploymentType = "production"
+		}
+		ui.Warning(fmt.Sprintf("No %s environment variables to pull", deploymentType))
 		return nil
 	}
 
 	// Check if .env already exists
 	if _, err := os.Stat(".env"); err == nil {
-		ui.Spacer()
-		overwrite, err := ui.Confirm(".env already exists. Overwrite?")
+		ui.Warning(".env file already exists")
+		overwrite, err := ui.Confirm("Overwrite?")
 		if err != nil {
 			return err
 		}
 		if !overwrite {
-			ui.Dim("Cancelled")
 			return nil
 		}
 	}
 
-	file, err := os.Create(".env")
-	if err != nil {
-		return fmt.Errorf("failed to create .env file: %w", err)
-	}
-	defer file.Close()
+	ui.Spacer()
+
+	headers := []string{"Environment", "Key", "Value"}
+	rows := [][]string{}
 
 	for _, env := range envVars {
-		file.WriteString(fmt.Sprintf("%s=%s\n", env.Key, env.Value))
+		value := env.Value
+		// Mask sensitive values
+		if len(value) > 50 {
+			value = value[:20] + "..." + value[len(value)-10:]
+		}
+		if strings.Contains(strings.ToLower(env.Key), "secret") ||
+			strings.Contains(strings.ToLower(env.Key), "password") ||
+			strings.Contains(strings.ToLower(env.Key), "token") {
+			value = "••••••••"
+		}
+
+		envLabel := "Production"
+		if env.IsPreview {
+			envLabel = "Preview"
+		}
+
+		rows = append(rows, []string{envLabel, env.Key, value})
 	}
 
+	ui.Table(headers, rows)
 	ui.Spacer()
-	ui.Success(fmt.Sprintf("Pulled %d variables to .env", len(envVars)))
-	ui.Spacer()
-	ui.KeyValue("File", ".env")
-	ui.KeyValue("Variables", fmt.Sprintf("%d", len(envVars)))
+
+	// Pull variables
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "pull-env-vars",
+			ActiveName:   "Pulling environment variables...",
+			CompleteName: fmt.Sprintf("Pulled %d variables to .env", len(envVars)),
+			Action: func() error {
+				file, err := os.Create(".env")
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+
+				for _, env := range envVars {
+					_, err := file.WriteString(fmt.Sprintf("%s=%s\n", env.Key, env.Value))
+					if err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		},
+	})
+	if err != nil {
+		ui.Error("Failed to pull environment variables")
+		return err
+	}
 
 	return nil
 }
@@ -315,13 +414,6 @@ func runEnvPush(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	deploymentType := "preview"
-	if prodFlag {
-		deploymentType = "production"
-	}
-
-	ui.Section(fmt.Sprintf("Push Environment Variables - %s", deploymentType))
 
 	var envVars []struct {
 		Key   string
@@ -352,48 +444,185 @@ func runEnvPush(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	ui.Spacer()
-	ui.KeyValue("Found", fmt.Sprintf("%d variables", len(envVars)))
+	// Display variables to be pushed
+	ui.Warning(fmt.Sprintf("This will push %d environment variables", len(envVars)))
 	ui.Spacer()
 
-	confirmed, err := ui.Confirm(fmt.Sprintf("Push %d variables to %s?", len(envVars), deploymentType))
+	// Determine deployment type for display
+	deploymentType := "Preview"
+	if prodFlag {
+		deploymentType = "Production"
+	}
+
+	headers := []string{"Environment", "Key", "Value"}
+	rows := [][]string{}
+
+	for _, env := range envVars {
+		value := env.Value
+		// Mask sensitive values
+		if len(value) > 50 {
+			value = value[:20] + "..." + value[len(value)-10:]
+		}
+		if strings.Contains(strings.ToLower(env.Key), "secret") ||
+			strings.Contains(strings.ToLower(env.Key), "password") ||
+			strings.Contains(strings.ToLower(env.Key), "token") {
+			value = "••••••••"
+		}
+
+		rows = append(rows, []string{deploymentType, env.Key, value})
+	}
+
+	ui.Table(headers, rows)
+	ui.Spacer()
+
+	// Confirm push
+	confirmed, err := ui.Confirm("Are you sure?")
 	if err != nil {
 		return err
 	}
 	if !confirmed {
-		ui.Dim("Cancelled")
 		return nil
 	}
 
-	ui.Spacer()
+	// Push variables
 	pushed := 0
 	failed := 0
 
 	// Set is_preview based on flag (default is preview, --prod targets production)
 	isPreview := !prodFlag
 
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "push-env-vars",
+			ActiveName:   "Pushing environment variables...",
+			CompleteName: fmt.Sprintf("Pushed %d variables", len(envVars)),
+			Action: func() error {
+				for _, env := range envVars {
+					_, err := client.CreateApplicationEnvVar(appUUID, env.Key, env.Value, false, isPreview)
+					if err != nil {
+						failed++
+					} else {
+						pushed++
+					}
+				}
+				return nil
+			},
+		},
+	})
+	if err != nil {
+		ui.Error("Failed to push environment variables")
+		return err
+	}
+
+	if failed > 0 {
+		ui.Warning(fmt.Sprintf("%d failed", failed))
+	}
+
+	return nil
+}
+
+func runEnvReset(cmd *cobra.Command, args []string) error {
+	appUUID, client, err := getAppUUID()
+	if err != nil {
+		return err
+	}
+
+	// Determine deployment type
+	deploymentType := "preview"
+	if prodFlag {
+		deploymentType = "production"
+	}
+
+	// Fetch all env vars
+	envVars, err := client.GetApplicationEnvVars(appUUID)
+	if err != nil {
+		ui.Error("Failed to fetch environment variables")
+		return fmt.Errorf("failed to fetch environment variables: %w", err)
+	}
+
+	// Filter by deployment type
+	isPreview := !prodFlag
+	var varsToDelete []api.EnvVar
 	for _, env := range envVars {
-		ui.Info(fmt.Sprintf("Pushing %s...", env.Key))
-		_, err := client.CreateApplicationEnvVar(appUUID, env.Key, env.Value, false, isPreview)
-		if err != nil {
-			ui.Warning(fmt.Sprintf("Failed to push %s: %v", env.Key, err))
-			failed++
-		} else {
-			ui.Success(fmt.Sprintf("Pushed %s", env.Key))
-			pushed++
+		if env.IsPreview == isPreview {
+			varsToDelete = append(varsToDelete, env)
 		}
 	}
 
-	ui.Spacer()
-	if failed > 0 {
-		ui.Warning(fmt.Sprintf("Pushed %d variables (%d failed)", pushed, failed))
-	} else {
-		ui.Success(fmt.Sprintf("Pushed %d variables", pushed))
+	if len(varsToDelete) == 0 {
+		ui.Warning(fmt.Sprintf("No %s environment variables to delete", deploymentType))
+		return nil
 	}
 
-	ui.NextSteps([]string{
-		fmt.Sprintf("Run '%s' to redeploy with new variables", execName()),
+	// Display variables to be deleted
+	ui.Warning(fmt.Sprintf("This will delete %d environment variables", len(varsToDelete)))
+	ui.Spacer()
+	
+	headers := []string{"Environment", "Key", "Value"}
+	rows := [][]string{}
+	
+	for _, env := range varsToDelete {
+		value := env.Value
+		// Mask sensitive values
+		if len(value) > 50 {
+			value = value[:20] + "..." + value[len(value)-10:]
+		}
+		if strings.Contains(strings.ToLower(env.Key), "secret") ||
+			strings.Contains(strings.ToLower(env.Key), "password") ||
+			strings.Contains(strings.ToLower(env.Key), "token") {
+			value = "••••••••"
+		}
+		
+		envLabel := "Production"
+		if env.IsPreview {
+			envLabel = "Preview"
+		}
+		
+		rows = append(rows, []string{envLabel, env.Key, value})
+	}
+	
+	ui.Table(headers, rows)
+	ui.Spacer()
+	
+	// Confirm deletion
+	confirmed, err := ui.Confirm("Are you sure?")
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return nil
+	}
+
+	// Delete all variables
+	deleted := 0
+	failed := 0
+
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "delete-env-vars",
+			ActiveName:   "Deleting environment variables...",
+			CompleteName: fmt.Sprintf("Deleted %d variables", len(varsToDelete)),
+			Action: func() error {
+				for _, env := range varsToDelete {
+					err := client.DeleteApplicationEnvVar(appUUID, env.UUID)
+					if err != nil {
+						failed++
+					} else {
+						deleted++
+					}
+				}
+				return nil
+			},
+		},
 	})
+	if err != nil {
+		ui.Error("Failed to delete environment variables")
+		return err
+	}
+
+	if failed > 0 {
+		ui.Warning(fmt.Sprintf("%d failed", failed))
+	}
 
 	return nil
 }

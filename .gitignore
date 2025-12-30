@@ -3,4 +3,7 @@ cdp
 .env
 cdp.json
 dist/
+bin/
+.crush
+.claude
 .DS_Store

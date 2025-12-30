@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/dropalltables/cdp/internal/api"
 	"github.com/dropalltables/cdp/internal/config"
@@ -21,7 +22,12 @@ func DeployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 	}
 
 	// Handle GitHub repository setup (if needed)
-	needsRepoCreation := !ghClient.RepoExists(user.Login, projectCfg.GitHubRepo)
+	repoName := projectCfg.GitHubRepo
+	if strings.Contains(repoName, "/") {
+		parts := strings.Split(repoName, "/")
+		repoName = parts[len(parts)-1]
+	}
+	needsRepoCreation := !ghClient.RepoExists(user.Login, repoName)
 	if err := handleGitHubRepoSetup(ghClient, projectCfg, user.Login, needsRepoCreation); err != nil {
 		return err
 	}
@@ -59,8 +65,7 @@ func DeployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 
 	app, err := client.GetApplication(projectCfg.AppUUID)
 	if err == nil && app.FQDN != "" {
-		ui.Spacer()
-		ui.KeyValue("URL", ui.InfoStyle.Render(app.FQDN))
+		fmt.Println(ui.DimStyle.Render("  URL: " + app.FQDN))
 	}
 
 	return nil
@@ -148,15 +153,32 @@ func handleGitHubAppSelection(client *api.Client, projectCfg *config.ProjectConf
 		githubAppUUID = githubApps[0].UUID
 		ui.LogChoice("GitHub App", githubApps[0].Name)
 	} else {
-		appOptions := make(map[string]string)
+		// Build ordered options list with non-public GitHub apps first (as default)
+		var appOptions []struct{ Key, Display string }
+		
+		// Add non-public apps first
 		for _, app := range githubApps {
-			displayName := app.Name
-			if app.Organization != "" {
-				displayName = fmt.Sprintf("%s (%s)", app.Name, app.Organization)
+			if !isPublicGitHub(app.Name) {
+				displayName := app.Name
+				if app.Organization != "" {
+					displayName = fmt.Sprintf("%s (%s)", app.Name, app.Organization)
+				}
+				appOptions = append(appOptions, struct{ Key, Display string }{Key: app.UUID, Display: displayName})
 			}
-			appOptions[app.UUID] = displayName
 		}
-		githubAppUUID, err = ui.SelectWithKeys("Select GitHub App", appOptions)
+		
+		// Then add public apps
+		for _, app := range githubApps {
+			if isPublicGitHub(app.Name) {
+				displayName := app.Name
+				if app.Organization != "" {
+					displayName = fmt.Sprintf("%s (%s)", app.Name, app.Organization)
+				}
+				appOptions = append(appOptions, struct{ Key, Display string }{Key: app.UUID, Display: displayName})
+			}
+		}
+		
+		githubAppUUID, err = ui.SelectWithKeysOrdered("Select GitHub App", appOptions)
 		if err != nil {
 			return err
 		}
@@ -170,6 +192,12 @@ func handleGitHubAppSelection(client *api.Client, projectCfg *config.ProjectConf
 	}
 
 	return nil
+}
+
+// isPublicGitHub checks if a GitHub app is the public GitHub (not self-hosted)
+func isPublicGitHub(appName string) bool {
+	return strings.Contains(strings.ToLower(appName), "public") || 
+		   strings.Contains(strings.ToLower(appName), "github.com")
 }
 
 func buildGitDeploymentTasks(
@@ -202,16 +230,14 @@ func buildGitDeploymentTasks(
 		tasks = append(tasks, initGitTask())
 	}
 
-	// Push code to GitHub
-	tasks = append(tasks, pushCodeTask(ghClient, globalCfg, projectCfg, username, verbose))
-
-	// Create Coolify app if needed
+	// Create Coolify app if needed (before push so webhook works)
 	if projectCfg.AppUUID == "" {
 		tasks = append(tasks, createGitAppTask(client, projectCfg, username))
 	}
 
-	// Trigger deployment
-	tasks = append(tasks, triggerGitDeploymentTask(client, projectCfg))
+	// Push code to GitHub and trigger deployment
+	// Webhook triggers on push, but if no changes we trigger manually
+	tasks = append(tasks, pushAndDeployTask(client, ghClient, globalCfg, projectCfg, username, verbose))
 
 	return tasks
 }
@@ -225,8 +251,15 @@ func createGitHubRepoTask(ghClient *git.GitHubClient, projectCfg *config.Project
 			// Create README if it doesn't exist
 			_ = CreateReadmeIfMissing(projectCfg)
 
+			// Extract just the repo name (not the owner/name format)
+			repoName := projectCfg.GitHubRepo
+			if strings.Contains(repoName, "/") {
+				parts := strings.Split(repoName, "/")
+				repoName = parts[len(parts)-1]
+			}
+
 			_, err := ghClient.CreateRepo(
-				projectCfg.GitHubRepo,
+				repoName,
 				fmt.Sprintf("Deployment repository for %s", projectCfg.Name),
 				projectCfg.GitHubPrivate,
 			)
@@ -253,13 +286,19 @@ func initGitTask() ui.Task {
 	}
 }
 
-func pushCodeTask(ghClient *git.GitHubClient, globalCfg *config.GlobalConfig, projectCfg *config.ProjectConfig, username string, verbose bool) ui.Task {
+func pushAndDeployTask(client *api.Client, ghClient *git.GitHubClient, globalCfg *config.GlobalConfig, projectCfg *config.ProjectConfig, username string, verbose bool) ui.Task {
 	return ui.Task{
-		Name:         "push-code",
+		Name:         "push-deploy",
 		ActiveName:   "Pushing code to GitHub...",
 		CompleteName: "Pushed code to GitHub",
 		Action: func() error {
-			fullRepoName := fmt.Sprintf("%s/%s", username, projectCfg.GitHubRepo)
+			// Extract just the repo name (projectCfg.GitHubRepo may contain owner/name or just name)
+			repoName := projectCfg.GitHubRepo
+			if strings.Contains(repoName, "/") {
+				parts := strings.Split(repoName, "/")
+				repoName = parts[len(parts)-1]
+			}
+			fullRepoName := fmt.Sprintf("%s/%s", username, repoName)
 
 			// Use HTTPS URL without embedded token (more secure)
 			remoteURL := fmt.Sprintf("https://github.com/%s.git", fullRepoName)
@@ -268,6 +307,7 @@ func pushCodeTask(ghClient *git.GitHubClient, globalCfg *config.GlobalConfig, pr
 			}
 
 			// Auto-commit any changes
+			hadChanges := git.HasChanges(".")
 			_ = git.AutoCommitVerbose(".", verbose)
 
 			// Determine branch
@@ -281,8 +321,21 @@ func pushCodeTask(ghClient *git.GitHubClient, globalCfg *config.GlobalConfig, pr
 				}
 			}
 
-			// Use secure token-based authentication
-			return git.PushWithTokenVerbose(".", "origin", branch, globalCfg.GitHubToken, verbose)
+			// Push to GitHub - webhook triggers deployment if there are changes
+			err := git.PushWithTokenVerbose(".", "origin", branch, globalCfg.GitHubToken, verbose)
+			if err != nil {
+				return err
+			}
+
+			// If no changes were committed, webhook won't fire - trigger manually
+			if !hadChanges {
+				_, err = client.Deploy(projectCfg.AppUUID, false, 0)
+				if err != nil {
+					return fmt.Errorf("failed to trigger deployment: %w", err)
+				}
+			}
+
+			return nil
 		},
 	}
 }
@@ -313,7 +366,13 @@ func createGitAppTask(client *api.Client, projectCfg *config.ProjectConfig, user
 				}
 			}
 
-			fullRepoName := fmt.Sprintf("%s/%s", username, projectCfg.GitHubRepo)
+			// Extract just the repo name (projectCfg.GitHubRepo may contain owner/name or just name)
+			repoName := projectCfg.GitHubRepo
+			if strings.Contains(repoName, "/") {
+				parts := strings.Split(repoName, "/")
+				repoName = parts[len(parts)-1]
+			}
+			fullRepoName := fmt.Sprintf("%s/%s", username, repoName)
 
 			// Use Coolify's static site feature for static builds
 			isStatic := buildPack == detect.BuildPackStatic
@@ -352,17 +411,3 @@ func createGitAppTask(client *api.Client, projectCfg *config.ProjectConfig, user
 	}
 }
 
-func triggerGitDeploymentTask(client *api.Client, projectCfg *config.ProjectConfig) ui.Task {
-	return ui.Task{
-		Name:         "trigger-deploy",
-		ActiveName:   "Triggering deployment...",
-		CompleteName: "✓ Triggered deployment",
-		Action: func() error {
-			_, err := client.Deploy(projectCfg.AppUUID, false, 0)
-			if err != nil {
-				return fmt.Errorf("failed to trigger deployment: %w", err)
-			}
-			return nil
-		},
-	}
-}

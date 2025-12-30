@@ -39,8 +39,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		cfg = &config.GlobalConfig{}
 	}
 
-	ui.Section("Coolify Authentication")
-
 	// Step 1: Coolify credentials
 	coolifyURL, err := ui.Input("Coolify URL", "https://coolify.example.com")
 	if err != nil {
@@ -63,20 +61,29 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Validate credentials
 	ui.Spacer()
-	ui.Info("Connecting to Coolify...")
 	client := api.NewClient(coolifyURL, token)
-	if err := client.HealthCheck(); err != nil {
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "validate-coolify",
+			ActiveName:   "Connecting to Coolify...",
+			CompleteName: "Connected to Coolify",
+			Action: func() error {
+				return client.HealthCheck()
+			},
+		},
+	})
+	if err != nil {
 		ui.Error("Connection failed")
 		return fmt.Errorf("failed to connect: %w", err)
 	}
-	ui.Success("Connected to Coolify")
 
 	// Save base credentials
 	cfg.CoolifyURL = coolifyURL
 	cfg.CoolifyToken = token
 
 	// Step 2: Optional GitHub setup
-	ui.Section("GitHub Integration (Optional)")
+	ui.Spacer()
+	ui.Bold("GitHub Integration (Optional)")
 	ui.Dim("Enable git-based deployments with automatic repository management")
 	ui.Spacer()
 
@@ -97,13 +104,23 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		}
 		if githubToken != "" {
 			// Verify GitHub token
-			ui.Info("Verifying GitHub token...")
-			ghClient := git.NewGitHubClient(githubToken)
-			user, err := ghClient.GetUser()
+			var user *git.User
+			err = ui.RunTasks([]ui.Task{
+				{
+					Name:         "verify-github",
+					ActiveName:   "Verifying GitHub token...",
+					CompleteName: "GitHub token verified",
+					Action: func() error {
+						ghClient := git.NewGitHubClient(githubToken)
+						var err error
+						user, err = ghClient.GetUser()
+						return err
+					},
+				},
+			})
 			if err != nil {
 				ui.Warning("GitHub verification failed: " + err.Error())
 			} else {
-				ui.Success("GitHub token verified")
 				cfg.GitHubToken = githubToken
 				ui.Spacer()
 				ui.KeyValue("GitHub user", user.Login)
@@ -112,7 +129,8 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	// Step 3: Optional Docker registry setup
-	ui.Section("Docker Registry (Optional)")
+	ui.Spacer()
+	ui.Bold("Docker Registry (Optional)")
 	ui.Dim("Enable container-based deployments with private registries")
 	ui.Spacer()
 
@@ -142,12 +160,19 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 			if registryURL != "" && username != "" && password != "" {
 				ui.Spacer()
-				ui.Info("Verifying registry credentials...")
-				err := docker.VerifyLogin(registryURL, username, password)
+				err = ui.RunTasks([]ui.Task{
+					{
+						Name:         "verify-registry",
+						ActiveName:   "Verifying registry credentials...",
+						CompleteName: "Registry credentials verified",
+						Action: func() error {
+							return docker.VerifyLogin(registryURL, username, password)
+						},
+					},
+				})
 				if err != nil {
 					ui.Warning("Registry verification failed: " + err.Error())
 				} else {
-					ui.Success("Registry credentials verified")
 					cfg.DockerRegistry = &config.DockerRegistry{
 						URL:      registryURL,
 						Username: username,
@@ -167,13 +192,21 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	// Save config
-	if err := config.SaveGlobal(cfg); err != nil {
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "save-config",
+			ActiveName:   "Saving configuration...",
+			CompleteName: "Authentication configured",
+			Action: func() error {
+				return config.SaveGlobal(cfg)
+			},
+		},
+	})
+	if err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
 	// Show summary
-	ui.Divider()
-	ui.Success("Authentication configured")
 	ui.Spacer()
 	ui.KeyValue("Coolify URL", coolifyURL)
 

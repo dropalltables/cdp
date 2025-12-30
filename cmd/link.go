@@ -27,8 +27,6 @@ func runLink(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	ui.Section("Link Project")
-
 	// Check if already linked
 	if config.ProjectExists() {
 		ui.Warning("This directory is already linked to a project")
@@ -38,10 +36,8 @@ func runLink(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if !overwrite {
-			ui.Dim("Cancelled")
 			return nil
 		}
-		ui.Spacer()
 	}
 
 	globalCfg, err := config.LoadGlobal()
@@ -52,13 +48,23 @@ func runLink(cmd *cobra.Command, args []string) error {
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
 	// List applications
-	ui.Info("Loading applications...")
-	apps, err := client.ListApplications()
+	var apps []api.Application
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "list-apps",
+			ActiveName:   "Loading applications...",
+			CompleteName: "Loaded applications",
+			Action: func() error {
+				var err error
+				apps, err = client.ListApplications()
+				return err
+			},
+		},
+	})
 	if err != nil {
 		ui.Error("Failed to load applications")
 		return fmt.Errorf("failed to list applications: %w", err)
 	}
-	ui.Success("Loaded applications")
 
 	if len(apps) == 0 {
 		ui.Spacer()
@@ -71,7 +77,6 @@ func runLink(cmd *cobra.Command, args []string) error {
 	}
 
 	// Select application
-	ui.Spacer()
 	appOptions := make(map[string]string)
 	appMap := make(map[string]api.Application)
 	for _, app := range apps {
@@ -83,7 +88,7 @@ func runLink(cmd *cobra.Command, args []string) error {
 		appMap[app.UUID] = app
 	}
 
-	appUUID, err := ui.SelectWithKeys("Select application to link:", appOptions)
+	appUUID, err := ui.SelectWithKeys("Select application:", appOptions)
 	if err != nil {
 		return err
 	}
@@ -96,11 +101,44 @@ func runLink(cmd *cobra.Command, args []string) error {
 		deployMethod = config.DeployMethodDocker
 	}
 
+	// Find the project UUID for this app by checking all projects
+	var projectUUID string
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "lookup-project",
+			ActiveName:   "Looking up project information...",
+			CompleteName: "Found project information",
+			Action: func() error {
+				projects, err := client.ListProjects()
+				if err != nil {
+					return nil // Non-fatal - project UUID is optional
+				}
+				for _, proj := range projects {
+					// Check if this project has an environment that matches our app's environment
+					projDetail, err := client.GetProject(proj.UUID)
+					if err == nil && projDetail != nil {
+						for _, env := range projDetail.Environments {
+							if env.ID == app.EnvironmentID {
+								projectUUID = proj.UUID
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
 	// Create project config
 	projectCfg := &config.ProjectConfig{
 		Name:            getWorkingDirName(),
 		DeployMethod:    deployMethod,
 		ServerUUID:      "",
+		ProjectUUID:     projectUUID, // Set if we found it
 		AppUUID:         appUUID,
 		EnvironmentUUID: "", // Will be fetched from app if needed
 		Framework:       app.BuildPack,
@@ -116,20 +154,23 @@ func runLink(cmd *cobra.Command, args []string) error {
 		projectCfg.GitHubRepo = app.GitRepository
 	}
 
-	if err := config.SaveProject(projectCfg); err != nil {
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "save-config",
+			ActiveName:   "Saving configuration...",
+			CompleteName: "Project linked successfully",
+			Action: func() error {
+				return config.SaveProject(projectCfg)
+			},
+		},
+	})
+	if err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
 	ui.Spacer()
-	ui.Success("Project linked successfully")
-	ui.Spacer()
 	ui.KeyValue("Application", app.Name)
 	ui.KeyValue("Deploy method", deployMethod)
-
-	ui.NextSteps([]string{
-		fmt.Sprintf("Run '%s' to deploy to this application", execName()),
-		fmt.Sprintf("Run '%s ls' to view deployment status", execName()),
-	})
 
 	return nil
 }

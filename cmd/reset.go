@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/dropalltables/cdp/internal/api"
@@ -43,26 +44,25 @@ func runReset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show what will be deleted
-	fmt.Println()
 	ui.Warning("This will DELETE the following resources:")
-	fmt.Println()
+	ui.Spacer()
 	if projectCfg.GitHubRepo != "" {
-		fmt.Printf("  GitHub repo: %s\n", projectCfg.GitHubRepo)
+		ui.Dim(fmt.Sprintf("  Github repo: %s", projectCfg.GitHubRepo))
 	}
 	if projectCfg.ProjectUUID != "" {
-		fmt.Printf("  Coolify project UUID: %s\n", projectCfg.ProjectUUID)
+		ui.Dim(fmt.Sprintf("  Coolify project UUID: %s", projectCfg.ProjectUUID))
 	}
 	if projectCfg.AppUUID != "" {
-		fmt.Printf("  Coolify app: %s\n", projectCfg.AppUUID)
+		ui.Dim(fmt.Sprintf("  Coolify app: %s", projectCfg.AppUUID))
 	}
-	fmt.Println()
+	ui.Spacer()
 
-	confirm, err := ui.Confirm("Are you sure? This cannot be undone!")
+	confirm, err := ui.Confirm("Are you sure?")
 	if err != nil {
 		return err
 	}
 	if !confirm {
-		return fmt.Errorf("cancelled")
+		return nil
 	}
 
 	// Double confirm
@@ -71,105 +71,125 @@ func runReset(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if !confirm2 {
-		return fmt.Errorf("cancelled")
+		return nil
 	}
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
+	// Collect tasks for deletion
+	tasks := []ui.Task{}
+
 	// Delete Coolify app
 	if projectCfg.AppUUID != "" {
-		ui.Info("Deleting Coolify app...")
-		err := client.DeleteApplication(projectCfg.AppUUID)
-		if err != nil {
-			ui.Warning(fmt.Sprintf("Failed to delete app: %v", err))
-		} else {
-			ui.Success("Deleted Coolify app")
-		}
+		tasks = append(tasks, ui.Task{
+			Name:         "delete-app",
+			ActiveName:   "Deleting Coolify app...",
+			CompleteName: "Deleted Coolify app",
+			Action: func() error {
+				return client.DeleteApplication(projectCfg.AppUUID)
+			},
+		})
 	}
 
 	// Delete Coolify project with retries
-	// (Coolify requires all resources to be deleted first)
 	if projectCfg.ProjectUUID != "" {
-		ui.Info("Waiting for Coolify cleanup...")
-		time.Sleep(5 * time.Second)
+		projectUUID := projectCfg.ProjectUUID
+		tasks = append(tasks, ui.Task{
+			Name:         "delete-project",
+			ActiveName:   "Deleting Coolify project...",
+			CompleteName: "Deleted Coolify project",
+			Action: func() error {
+				// Wait for cleanup after app deletion
+				time.Sleep(2 * time.Second)
 
-		ui.Info("Deleting Coolify project...")
-
-		// Try up to 5 times with increasing delays
-		var lastErr error
-		for attempt := 1; attempt <= 5; attempt++ {
-			err := client.DeleteProject(projectCfg.ProjectUUID)
-			if err == nil {
-				ui.Success("Deleted Coolify project")
-				break
-			}
-
-			lastErr = err
-			if attempt < 5 {
-				waitTime := time.Duration(attempt*2) * time.Second
-				ui.Dim(fmt.Sprintf("Retry %d/5 in %ds...", attempt, int(waitTime.Seconds())))
-				time.Sleep(waitTime)
-			}
-		}
-
-		if lastErr != nil {
-			ui.Warning(fmt.Sprintf("Failed to delete project: %v", lastErr))
-			ui.Dim("You may need to manually delete the project in Coolify if it still has resources")
-		}
+				// Try up to 5 times with increasing delays
+				var lastErr error
+				for attempt := 1; attempt <= 5; attempt++ {
+					err := client.DeleteProject(projectUUID)
+					if err == nil {
+						return nil
+					}
+					lastErr = err
+					if attempt < 5 {
+						time.Sleep(time.Duration(attempt*2) * time.Second)
+					}
+				}
+				return lastErr
+			},
+		})
 	}
 
 	// Delete GitHub repo
 	if projectCfg.GitHubRepo != "" && globalCfg.GitHubToken != "" {
-		ghClient := git.NewGitHubClient(globalCfg.GitHubToken)
+		githubRepo := projectCfg.GitHubRepo
+		githubToken := globalCfg.GitHubToken
+		tasks = append(tasks, ui.Task{
+			Name:         "delete-repo",
+			ActiveName:   "Deleting GitHub repository...",
+			CompleteName: "Deleted GitHub repository",
+			Action: func() error {
+				ghClient := git.NewGitHubClient(githubToken)
+				user, err := ghClient.GetUser()
+				if err != nil {
+					return err
+				}
 
-		// Get current user to build full repo name
-		user, err := ghClient.GetUser()
-		if err != nil {
-			ui.Warning(fmt.Sprintf("Failed to get GitHub user: %v", err))
-		} else {
-			ui.Info("Deleting GitHub repository...")
-			err = ghClient.DeleteRepo(user.Login, projectCfg.GitHubRepo)
-			if err != nil {
-				ui.Warning(fmt.Sprintf("Failed to delete repo: %v", err))
-			} else {
-				ui.Success(fmt.Sprintf("Deleted GitHub repo: %s/%s", user.Login, projectCfg.GitHubRepo))
-			}
-		}
+				// Extract just the repo name
+				repoName := githubRepo
+				if strings.Contains(repoName, "/") {
+					parts := strings.Split(repoName, "/")
+					repoName = parts[len(parts)-1]
+				}
+
+				return ghClient.DeleteRepo(user.Login, repoName)
+			},
+		})
 	}
 
-	// Delete local cdp.json
-	ui.Info("Removing cdp.json...")
-	err = config.DeleteProject()
-	if err != nil {
-		ui.Warning(fmt.Sprintf("Failed to delete cdp.json: %v", err))
-	} else {
-		ui.Success("Removed cdp.json")
+	// Delete local files
+	if _, err := os.Stat("cdp.json"); err == nil {
+		tasks = append(tasks, ui.Task{
+			Name:         "delete-config",
+			ActiveName:   "Removing cdp.json...",
+			CompleteName: "Removed cdp.json",
+			Action: func() error {
+				return config.DeleteProject()
+			},
+		})
 	}
 
-	// Delete README.md if it exists
 	if _, err := os.Stat("README.md"); err == nil {
-		ui.Info("Removing README.md...")
-		err = os.Remove("README.md")
-		if err != nil {
-			ui.Warning(fmt.Sprintf("Failed to delete README.md: %v", err))
-		} else {
-			ui.Success("Removed README.md")
-		}
+		tasks = append(tasks, ui.Task{
+			Name:         "delete-readme",
+			ActiveName:   "Removing README.md...",
+			CompleteName: "Removed README.md",
+			Action: func() error {
+				return os.Remove("README.md")
+			},
+		})
 	}
 
-	// Delete .git directory if it exists
 	if _, err := os.Stat(".git"); err == nil {
-		ui.Info("Removing .git directory...")
-		err = os.RemoveAll(".git")
-		if err != nil {
-			ui.Warning(fmt.Sprintf("Failed to delete .git: %v", err))
-		} else {
-			ui.Success("Removed .git directory")
+		tasks = append(tasks, ui.Task{
+			Name:         "delete-git",
+			ActiveName:   "Removing .git directory...",
+			CompleteName: "Removed .git directory",
+			Action: func() error {
+				return os.RemoveAll(".git")
+			},
+		})
+	}
+
+	// Run all deletion tasks
+	if len(tasks) > 0 {
+		if err := ui.RunTasks(tasks); err != nil {
+			// Some tasks may fail (e.g., remote resources), but continue
+			ui.Warning("Some resources could not be deleted, but local files have been cleaned")
 		}
 	}
 
-	fmt.Println()
-	ui.Success("Reset complete. Run 'cdp' to set up again.")
+	ui.Spacer()
+	ui.Success("Reset complete.")
 
 	return nil
 }

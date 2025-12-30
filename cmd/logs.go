@@ -29,18 +29,12 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	projectCfg, err := config.LoadProject()
 	if err != nil || projectCfg == nil {
 		ui.Error("No project configuration found")
-		ui.NextSteps([]string{
-			fmt.Sprintf("Run '%s' to deploy", execName()),
-		})
 		return fmt.Errorf("not linked to a project")
 	}
 
 	appUUID := projectCfg.AppUUID
 	if appUUID == "" {
 		ui.Error("No application found")
-		ui.NextSteps([]string{
-			fmt.Sprintf("Run '%s' to deploy", execName()),
-		})
 		return fmt.Errorf("no application found")
 	}
 
@@ -51,10 +45,19 @@ func runLogs(cmd *cobra.Command, args []string) error {
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
-	ui.Section("Deployment Logs")
-
-	ui.Info("Fetching logs...")
-	logs, err := client.GetDeploymentLogs(appUUID)
+	var logs string
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "fetch-logs",
+			ActiveName:   "Fetching logs...",
+			CompleteName: "Fetched logs",
+			Action: func() error {
+				var err error
+				logs, err = client.GetDeploymentLogs(appUUID)
+				return err
+			},
+		},
+	})
 	if err != nil {
 		ui.Error("Failed to fetch logs")
 		return fmt.Errorf("failed to fetch logs: %w", err)
@@ -78,7 +81,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	lines := strings.Split(logs, "\n")
 	for _, line := range lines {
 		if line != "" {
-			logStream.WriteRaw(line + "\n")
+			logStream.Write(line)
 		}
 	}
 

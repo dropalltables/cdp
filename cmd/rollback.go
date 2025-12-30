@@ -6,6 +6,7 @@ import (
 
 	"github.com/dropalltables/cdp/internal/api"
 	"github.com/dropalltables/cdp/internal/config"
+	"github.com/dropalltables/cdp/internal/deploy"
 	"github.com/dropalltables/cdp/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -37,11 +38,7 @@ func runRollback(cmd *cobra.Command, args []string) error {
 
 	if projectCfg.DeployMethod == config.DeployMethodDocker {
 		ui.Error("Rollback is not supported for Docker-based deployments")
-		ui.Spacer()
 		ui.Dim("For Docker deployments, manually redeploy a previous image tag")
-		ui.NextSteps([]string{
-			fmt.Sprintf("Run '%s --help' for usage", execName()),
-		})
 		return nil
 	}
 
@@ -61,30 +58,35 @@ func runRollback(cmd *cobra.Command, args []string) error {
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
-	ui.Section("Rollback")
-
-	// List recent deployments
-	ui.Info("Fetching deployment history...")
-	deployments, err := client.ListDeployments(appUUID)
+	// Get deployment history from Coolify API
+	var deployments []api.Deployment
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "fetch-history",
+			ActiveName:   "Fetching deployment history...",
+			CompleteName: "Fetched deployment history",
+			Action: func() error {
+				var err error
+				deployments, err = client.ListDeploymentHistory(appUUID)
+				return err
+			},
+		},
+	})
 	if err != nil {
-		ui.Error("Failed to fetch deployments")
-		return fmt.Errorf("failed to fetch deployments: %w", err)
+		ui.Error("Failed to fetch deployment history")
+		return fmt.Errorf("failed to fetch deployment history: %w", err)
 	}
-	ui.Success("Fetched deployment history")
 
 	if len(deployments) < 2 {
-		ui.Spacer()
 		ui.Warning("No previous deployments available")
 		ui.Dim("You need at least 2 deployments to rollback")
 		return nil
 	}
 
 	// Show deployment options (skip the current one)
-	ui.Spacer()
 	ui.Dim("Select a deployment to rollback to:")
-	ui.Spacer()
 
-	options := make(map[string]string)
+	var options []struct{ Key, Display string }
 	for i, d := range deployments {
 		if i == 0 {
 			continue // Skip current deployment
@@ -94,6 +96,9 @@ func runRollback(cmd *cobra.Command, args []string) error {
 		}
 
 		commit := d.GitCommitSha
+		if commit == "" {
+			commit = d.Commit
+		}
 		if len(commit) > 7 {
 			commit = commit[:7]
 		}
@@ -109,23 +114,24 @@ func runRollback(cmd *cobra.Command, args []string) error {
 			msg = "(no message)"
 		}
 
-		status := d.Status
-		if strings.ToLower(status) == "finished" {
-			status = ui.SuccessStyle.Render(status)
-		} else if strings.ToLower(status) == "failed" {
-			status = ui.ErrorStyle.Render(status)
+		status := strings.ToLower(d.Status)
+		statusDisplay := d.Status
+		if status == "finished" {
+			statusDisplay = ui.SuccessStyle.Render("✓")
+		} else if status == "failed" {
+			statusDisplay = ui.ErrorStyle.Render("✗")
 		}
 
-		displayName := fmt.Sprintf("%s - %s [%s]", commit, msg, status)
-		options[d.DeploymentUUID] = displayName
+		displayName := fmt.Sprintf("%s  %s  %s", commit, msg, statusDisplay)
+		options = append(options, struct{ Key, Display string }{Key: d.DeploymentUUID, Display: displayName})
 	}
 
 	if len(options) == 0 {
-		ui.Warning("No previous successful deployments found")
+		ui.Warning("No previous deployments found")
 		return nil
 	}
 
-	selectedUUID, err := ui.SelectWithKeys("Choose deployment:", options)
+	selectedUUID, err := ui.SelectWithKeysOrdered("", options)
 	if err != nil {
 		return err
 	}
@@ -145,11 +151,13 @@ func runRollback(cmd *cobra.Command, args []string) error {
 
 	// Confirm rollback
 	commit := selectedDeployment.GitCommitSha
+	if commit == "" {
+		commit = selectedDeployment.Commit
+	}
 	if len(commit) > 7 {
 		commit = commit[:7]
 	}
 
-	ui.Spacer()
 	confirmed, err := ui.ConfirmAction("rollback to", commit)
 	if err != nil {
 		return err
@@ -159,13 +167,15 @@ func runRollback(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	ui.Spacer()
-
-	// Trigger rollback
+	// Trigger rollback by updating the git commit and deploying
 	ui.Info("Initiating rollback...")
-	if selectedDeployment.GitCommitSha != "" {
+	fullCommit := selectedDeployment.GitCommitSha
+	if fullCommit == "" {
+		fullCommit = selectedDeployment.Commit
+	}
+	if fullCommit != "" {
 		err = client.UpdateApplication(appUUID, map[string]any{
-			"git_commit_sha": selectedDeployment.GitCommitSha,
+			"git_commit_sha": fullCommit,
 		})
 		if err != nil {
 			ui.Error("Failed to update application")
@@ -173,19 +183,29 @@ func runRollback(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Deploy with PR 0 (production)
+	// Deploy with force rebuild
 	_, err = client.Deploy(appUUID, true, 0)
 	if err != nil {
 		ui.Error("Failed to trigger deployment")
 		return fmt.Errorf("rollback failed: %w", err)
 	}
 
-	ui.Spacer()
-	ui.Success(fmt.Sprintf("Rollback to %s started", commit))
+	// Watch deployment
+	ui.Info("Watching deployment...")
 
-	ui.NextSteps([]string{
-		fmt.Sprintf("Run '%s logs' to monitor deployment progress", execName()),
-	})
+	success := deploy.WatchDeployment(client, appUUID)
+
+	if !success {
+		ui.Error("Rollback failed")
+		return fmt.Errorf("rollback failed")
+	}
+
+	ui.Success(fmt.Sprintf("Rolled back to %s", commit))
+
+	app, err := client.GetApplication(appUUID)
+	if err == nil && app.FQDN != "" {
+		fmt.Println(ui.DimStyle.Render("  URL: " + app.FQDN))
+	}
 
 	return nil
 }

@@ -22,23 +22,16 @@ func DeployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 
 	needsProjectCreation := projectCfg.ProjectUUID == ""
 
-	ui.Spacer()
-	ui.Divider()
-	ui.Bold("Docker Build")
-	ui.Spacer()
 	ui.KeyValue("Image", projectCfg.DockerImage)
 	ui.KeyValue("Tag", tag)
 	ui.KeyValue("Platform", projectCfg.Platform)
-	ui.Spacer()
 
 	// Build Docker image
 	if err := buildDockerImage(projectCfg, tag, verbose); err != nil {
 		return err
 	}
 
-	// API operations: create resources and push image
-	ui.Spacer()
-	ui.Divider()
+	ui.Info("Deploying to Coolify")
 
 	tasks := buildDockerDeploymentTasks(client, globalCfg, projectCfg, tag, needsProjectCreation, verbose)
 
@@ -67,8 +60,7 @@ func DeployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 
 	app, err := client.GetApplication(projectCfg.AppUUID)
 	if err == nil && app.FQDN != "" {
-		ui.Spacer()
-		ui.KeyValue("URL", ui.InfoStyle.Render(app.FQDN))
+		fmt.Println(ui.DimStyle.Render("  URL: " + app.FQDN))
 	}
 
 	return nil
@@ -89,7 +81,7 @@ func buildDockerImage(projectCfg *config.ProjectConfig, tag string, verbose bool
 		buildTask := ui.Task{
 			Name:         "build-image",
 			ActiveName:   "Building Docker image...",
-			CompleteName: "✓ Image built successfully",
+			CompleteName: "Image built successfully",
 			Action: func() error {
 				return docker.Build(&docker.BuildOptions{
 					Dir:       ".",
@@ -104,8 +96,7 @@ func buildDockerImage(projectCfg *config.ProjectConfig, tag string, verbose bool
 		err = ui.RunTasks([]ui.Task{buildTask})
 	} else {
 		// In verbose mode, show build output directly
-		ui.Info("Building Docker image...")
-		ui.Spacer()
+		fmt.Println("* Building Docker image...")
 		err = docker.Build(&docker.BuildOptions{
 			Dir:       ".",
 			ImageName: projectCfg.DockerImage,
@@ -114,10 +105,6 @@ func buildDockerImage(projectCfg *config.ProjectConfig, tag string, verbose bool
 			Platform:  projectCfg.Platform,
 			Verbose:   true,
 		})
-		ui.Spacer()
-		if err == nil {
-			ui.Success("Image built successfully")
-		}
 	}
 
 	if err != nil {
@@ -164,7 +151,7 @@ func createProjectTask(client *api.Client, projectCfg *config.ProjectConfig) ui.
 	return ui.Task{
 		Name:         "create-project",
 		ActiveName:   "Creating Coolify project...",
-		CompleteName: "✓ Created Coolify project",
+		CompleteName: "Created Coolify project",
 		Action: func() error {
 			newProject, err := client.CreateProject(projectCfg.Name, "Created by CDP")
 			if err != nil {
@@ -180,7 +167,7 @@ func setupEnvironmentTask(client *api.Client, projectCfg *config.ProjectConfig) 
 	return ui.Task{
 		Name:         "setup-env",
 		ActiveName:   "Setting up environment...",
-		CompleteName: "✓ Set up environment",
+		CompleteName: "Set up environment",
 		Action: func() error {
 			// Fetch project to check for auto-created environments
 			project, err := client.GetProject(projectCfg.ProjectUUID)
@@ -211,7 +198,7 @@ func checkEnvironmentTask(client *api.Client, projectCfg *config.ProjectConfig) 
 	return ui.Task{
 		Name:         "check-env",
 		ActiveName:   "Checking environment...",
-		CompleteName: "✓ Environment ready",
+		CompleteName: "Environment ready",
 		Action: func() error {
 			if projectCfg.EnvironmentUUID == "" {
 				project, err := client.GetProject(projectCfg.ProjectUUID)
@@ -246,7 +233,7 @@ func pushImageTask(globalCfg *config.GlobalConfig, projectCfg *config.ProjectCon
 	return ui.Task{
 		Name:         "push-image",
 		ActiveName:   "Pushing image to registry...",
-		CompleteName: "✓ Pushed image to registry",
+		CompleteName: "Pushed image to registry",
 		Action: func() error {
 			err := docker.Push(&docker.PushOptions{
 				ImageName: projectCfg.DockerImage,
@@ -268,7 +255,7 @@ func createDockerAppTask(client *api.Client, projectCfg *config.ProjectConfig, t
 	return ui.Task{
 		Name:         "create-app",
 		ActiveName:   "Creating Coolify application...",
-		CompleteName: "✓ Created Coolify application",
+		CompleteName: "Created Coolify application",
 		Action: func() error {
 			port := projectCfg.Port
 			if port == "" {
@@ -299,7 +286,7 @@ func triggerDeploymentTask(client *api.Client, projectCfg *config.ProjectConfig,
 	return ui.Task{
 		Name:         "trigger-deploy",
 		ActiveName:   "Triggering deployment...",
-		CompleteName: "✓ Triggered deployment",
+		CompleteName: "Triggered deployment",
 		Action: func() error {
 			if err := client.UpdateApplication(projectCfg.AppUUID, map[string]interface{}{
 				"docker_registry_image_tag": tag,

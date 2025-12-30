@@ -25,17 +25,28 @@ func RunTasksVerbose(tasks []Task, verbose bool) error {
 	}
 
 	for _, task := range tasks {
-		spinner := NewSpinner(task.ActiveName)
-		spinner.Start()
+		if verbose {
+			// In verbose mode, skip spinner and run action directly
+			err := task.Action()
+			if err != nil {
+				Error(task.ActiveName)
+				return err
+			}
+			Success(task.CompleteName)
+		} else {
+			// In normal mode, use spinner
+			spinner := NewSpinner(task.ActiveName)
+			spinner.Start()
 
-		err := task.Action()
+			err := task.Action()
 
-		if err != nil {
-			spinner.StopWithError(task.ActiveName)
-			return err
+			if err != nil {
+				spinner.StopWithError(task.ActiveName)
+				return err
+			}
+
+			spinner.StopWithSuccess(task.CompleteName)
 		}
-
-		spinner.StopWithSuccess(task.CompleteName)
 	}
 
 	return nil
@@ -46,7 +57,8 @@ type Spinner struct {
 	message string
 	frames  []string
 	done    chan struct{}
-	stopped bool
+	stopped chan struct{}
+	stopped_bool bool
 }
 
 // NewSpinner creates a new spinner with a message
@@ -55,7 +67,8 @@ func NewSpinner(message string) *Spinner {
 		message: message,
 		frames:  []string{"|", "/", "-", "\\"},
 		done:    make(chan struct{}),
-		stopped: false,
+		stopped: make(chan struct{}),
+		stopped_bool: false,
 	}
 }
 
@@ -66,6 +79,7 @@ func (s *Spinner) Start() {
 		for {
 			select {
 			case <-s.done:
+				close(s.stopped)
 				return
 			default:
 				fmt.Printf("\r%s %s", CyanStyle.Render(s.frames[frame%len(s.frames)]), s.message)
@@ -78,11 +92,12 @@ func (s *Spinner) Start() {
 
 // Stop stops the spinner and clears the line
 func (s *Spinner) Stop() {
-	if s.stopped {
+	if s.stopped_bool {
 		return
 	}
-	s.stopped = true
+	s.stopped_bool = true
 	close(s.done)
+	<-s.stopped // Wait for goroutine to finish
 	fmt.Print("\r\033[K")
 }
 

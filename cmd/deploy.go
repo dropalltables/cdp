@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/dropalltables/cdp/internal/api"
 	"github.com/dropalltables/cdp/internal/config"
@@ -48,11 +49,12 @@ func runDeploy() error {
 
 	// First-time setup if no project config exists
 	if projectCfg == nil {
-		ui.Section("New Project Setup")
-		ui.Dim("Let's configure your project for deployment")
-
 		projectCfg, err = deploy.FirstTimeSetup(client, globalCfg)
 		if err != nil {
+			// Exit silently on interrupt
+			if strings.Contains(err.Error(), "interrupted") {
+				return nil
+			}
 			return err
 		}
 		isFirstDeploy = true
@@ -63,8 +65,6 @@ func runDeploy() error {
 	prNumber := 0
 	deploymentType := "production"
 
-	ui.Spacer()
-
 	// Confirm deployments (except first deploy)
 	if !isFirstDeploy {
 		confirmed, err := ui.Confirm("Deploy to production?")
@@ -72,15 +72,11 @@ func runDeploy() error {
 			return err
 		}
 		if !confirmed {
-			ui.Dim("Deployment cancelled")
 			return nil
 		}
-		// Confirmation already leaves a blank line, so just show the title
-		ui.Bold("Deploy")
-		ui.Spacer()
-	} else {
-		ui.Section("Deploy")
 	}
+
+	ui.Spacer()
 	ui.KeyValue("Project", projectCfg.Name)
 	ui.KeyValue("Type", deploymentType)
 	ui.KeyValue("Method", projectCfg.DeployMethod)

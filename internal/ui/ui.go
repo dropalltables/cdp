@@ -80,6 +80,11 @@ func LogChoice(question, answer string) {
 	fmt.Printf("%s %s %s\n", prefix, q, a)
 }
 
+// logPromptAnswer logs the answer to a prompt in dimmed, indented format
+func logPromptAnswer(answer string) {
+	fmt.Println(DimStyle.Render("  " + answer))
+}
+
 // --- Output Functions ---
 
 func Print(msg string) {
@@ -157,8 +162,8 @@ func Section(title string) {
 }
 
 func KeyValue(key, value string) {
-	// Simple inline display without indentation
-	fmt.Printf("%s: %s\n", key, value)
+	// Display with double-space indentation and dimmed
+	fmt.Println(DimStyle.Render(fmt.Sprintf("  %s: %s", key, value)))
 }
 
 func List(items []string) {
@@ -250,6 +255,7 @@ func Input(prompt, placeholder string) (string, error) {
 		return "", err
 	}
 
+	logPromptAnswer(value)
 	return value, nil
 }
 
@@ -316,11 +322,43 @@ func SelectWithKeys(prompt string, options map[string]string) (string, error) {
 	}
 
 	// Build display list and key mapping
+	// Note: map iteration is unordered, but since this function signature can't change
+	// without breaking existing code, we accept this limitation
 	displayOptions := make([]string, 0, len(options))
 	keyMap := make(map[string]string)
 	for key, display := range options {
 		displayOptions = append(displayOptions, display)
 		keyMap[display] = key
+	}
+
+	var selected string
+	err := survey.AskOne(&survey.Select{
+		Message: prompt,
+		Options: displayOptions,
+	}, &selected, surveyIcons)
+
+	if err != nil {
+		if err == terminal.InterruptErr {
+			return "", fmt.Errorf("interrupted")
+		}
+		return "", err
+	}
+
+	return keyMap[selected], nil
+}
+
+// SelectWithKeysOrdered is like SelectWithKeys but maintains order by accepting a slice of (key, display) tuples
+func SelectWithKeysOrdered(prompt string, options []struct{ Key, Display string }) (string, error) {
+	if len(options) == 0 {
+		return "", fmt.Errorf("no options provided")
+	}
+
+	// Build display list and key mapping
+	displayOptions := make([]string, 0, len(options))
+	keyMap := make(map[string]string)
+	for _, opt := range options {
+		displayOptions = append(displayOptions, opt.Display)
+		keyMap[opt.Display] = opt.Key
 	}
 
 	var selected string
@@ -377,7 +415,7 @@ func NewLogStream() *LogStream {
 }
 
 func (l *LogStream) Write(msg string) {
-	fmt.Fprintln(l.writer, DimStyle.Render(msg))
+	fmt.Fprintln(l.writer, DimStyle.Render("  "+msg))
 }
 
 func (l *LogStream) WriteRaw(msg string) {

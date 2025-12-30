@@ -258,3 +258,36 @@ func AutoCommitVerbose(dir string, verbose bool) error {
 	message := fmt.Sprintf("Deploy via cdp")
 	return CommitVerbose(dir, message, verbose)
 }
+
+// CommitInfo represents a git commit
+type CommitInfo struct {
+	Hash    string
+	Message string
+}
+
+// GetRecentCommits returns recent commits from the git log
+func GetRecentCommits(dir string, limit int) ([]CommitInfo, error) {
+	// Format: hash<SEP>message
+	cmd := exec.Command("git", "log", fmt.Sprintf("-%d", limit), "--format=%H<SEP>%s")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var commits []CommitInfo
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "<SEP>", 2)
+		if len(parts) == 2 {
+			commits = append(commits, CommitInfo{
+				Hash:    parts[0],
+				Message: parts[1],
+			})
+		}
+	}
+	return commits, nil
+}

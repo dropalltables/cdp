@@ -71,11 +71,61 @@ type DeploymentLogsResponse struct {
 	Logs string `json:"logs"`
 }
 
-// ListDeployments returns deployments for an application
+// ListDeployments returns currently running deployments for an application
 func (c *Client) ListDeployments(appUUID string) ([]Deployment, error) {
+	var result interface{}
+	err := c.Get(fmt.Sprintf("/deployments?application_uuid=%s", appUUID), &result)
+	if err != nil {
+		return nil, err
+	}
+
+	// Coolify API can return either an array or an object with numeric keys
 	var deployments []Deployment
-	err := c.Get(fmt.Sprintf("/deployments?application_uuid=%s", appUUID), &deployments)
-	return deployments, err
+
+	switch v := result.(type) {
+	case []interface{}:
+		// Array format: [{"id": 1, ...}, ...]
+		data, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		err = json.Unmarshal(data, &deployments)
+		if err != nil {
+			return nil, err
+		}
+	case map[string]interface{}:
+		// Object format: {"1": {"id": 1, ...}, "2": {...}}
+		for _, item := range v {
+			data, err := json.Marshal(item)
+			if err != nil {
+				continue
+			}
+			var d Deployment
+			err = json.Unmarshal(data, &d)
+			if err != nil {
+				continue
+			}
+			deployments = append(deployments, d)
+		}
+	}
+
+	return deployments, nil
+}
+
+// DeploymentHistoryResponse wraps the deployment history API response
+type DeploymentHistoryResponse struct {
+	Count       int          `json:"count"`
+	Deployments []Deployment `json:"deployments"`
+}
+
+// ListDeploymentHistory returns all deployments (including finished) for an application
+func (c *Client) ListDeploymentHistory(appUUID string) ([]Deployment, error) {
+	var resp DeploymentHistoryResponse
+	err := c.Get(fmt.Sprintf("/deployments/applications/%s", appUUID), &resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Deployments, nil
 }
 
 // DeploymentDetail contains full deployment info including logs

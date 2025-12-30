@@ -21,8 +21,6 @@ const (
 // WatchDeployment polls the deployment status and displays build logs.
 // Returns true if deployment succeeded, false if it failed.
 func WatchDeployment(client *api.Client, appUUID string) bool {
-	ui.Spacer()
-
 	debug := os.Getenv("CDP_DEBUG") != ""
 	if debug {
 		fmt.Printf("[DEBUG] Watching app UUID: %s\n", appUUID)
@@ -55,10 +53,19 @@ func (w *deploymentWatcher) watch() bool {
 		if done {
 			return status == deploymentSuccess
 		}
+		
+		// Print progress every 30 attempts (1 minute)
+		if attempt > 0 && attempt%30 == 0 && w.debug {
+			fmt.Printf("[DEBUG] Still waiting... (attempt %d)\n", attempt)
+		}
+		
 		time.Sleep(pollInterval)
 	}
 
 	// Timeout reached - make final check
+	if w.debug {
+		fmt.Printf("[DEBUG] Reached max poll attempts (%d), making final check\n", maxPollAttempts)
+	}
 	return w.checkFinalStatus()
 }
 
@@ -115,11 +122,35 @@ func (w *deploymentWatcher) handleNoDeployments(attempt int) (deploymentStatus, 
 		return deploymentFailed, true
 	}
 
+	// If we SAW a deployment but it's now gone, deployment finished - check app status
+	if w.seenDeployment {
+		if w.debug {
+			fmt.Printf("[DEBUG] Deployment list empty after seeing deployment, checking app status\n")
+		}
+		return w.checkAppAndFinish()
+	}
+
 	if w.debug && attempt%10 == 0 {
 		fmt.Printf("[DEBUG] No deployments (attempt %d)\n", attempt)
 	}
 
 	return deploymentInProgress, false
+}
+
+func (w *deploymentWatcher) checkAppAndFinish() (deploymentStatus, bool) {
+	app, err := w.client.GetApplication(w.appUUID)
+	if err == nil {
+		status, done := w.checkStatus(app.Status)
+		if done {
+			return status, true
+		}
+		// Check if running
+		if strings.Contains(strings.ToLower(app.Status), "running") {
+			return deploymentSuccess, true
+		}
+	}
+	// Default to success (deployment likely completed)
+	return deploymentSuccess, true
 }
 
 func (w *deploymentWatcher) processDeployment(deployment api.Deployment, attempt int) (deploymentStatus, bool) {
@@ -179,15 +210,25 @@ func (w *deploymentWatcher) printNewLogs(rawLogs string) {
 func (w *deploymentWatcher) checkStatus(status string) (deploymentStatus, bool) {
 	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
 
-	switch normalizedStatus {
-	case "finished":
+	if w.debug {
+		fmt.Printf("[DEBUG] Deployment status: %q\n", normalizedStatus)
+	}
+
+	switch {
+	case normalizedStatus == "finished":
 		return deploymentSuccess, true
-	case "failed", "error", "cancelled":
+	case normalizedStatus == "failed" || normalizedStatus == "error" || normalizedStatus == "cancelled":
 		return deploymentFailed, true
-	case "running", "in_progress", "queued":
+	case normalizedStatus == "running" || normalizedStatus == "in_progress" || normalizedStatus == "queued":
 		return deploymentInProgress, false
+	case strings.Contains(normalizedStatus, "running") && strings.Contains(normalizedStatus, "healthy"):
+		// Status like "running:healthy" indicates successful deployment
+		return deploymentSuccess, true
 	default:
 		// Unknown status, keep watching
+		if w.debug {
+			fmt.Printf("[DEBUG] Unknown status, continuing to wait\n")
+		}
 		return deploymentInProgress, false
 	}
 }

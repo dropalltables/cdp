@@ -30,7 +30,7 @@ Commands are organized in the `cmd/` directory:
 Coolify API client implementation:
 - `client.go` - HTTP client with authentication
 - `applications.go` - Application CRUD operations
-- `deployments.go` - Deployment management
+- `deployments.go` - Deployment management, log parsing, health checks
 - `projects.go` - Project management
 - `servers.go` - Server listing
 - `types.go` - API request/response types
@@ -49,9 +49,9 @@ Framework detection:
 #### `internal/deploy/`
 Deployment orchestration:
 - `setup.go` - First-time project setup wizard
-- `git.go` - Git-based deployment logic
-- `docker.go` - Docker-based deployment logic
-- `watcher.go` - File watcher for development mode
+- `git.go` - Git-based deployment logic with verbose output support
+- `docker.go` - Docker-based deployment logic with verbose output support
+- `watcher.go` - Deployment status watcher with log streaming
 
 #### `internal/docker/`
 Docker operations:
@@ -61,12 +61,12 @@ Docker operations:
 
 #### `internal/git/`
 Git operations:
-- `repo.go` - Git repository management (init, commit, push)
+- `repo.go` - Git repository management (init, commit, push, log)
 - `github.go` - GitHub API client for repository creation
 
 #### `internal/ui/`
 User interface:
-- `ui.go` - Terminal UI helpers (spinners, prompts, colors)
+- `ui.go` - Terminal UI helpers (prompts, colors, output formatting) using survey library
 - `task_runner.go` - BubbleTea task runner for async operations with spinner feedback
 - `messages.go` - Message types for BubbleTea communication
 
@@ -157,6 +157,42 @@ The task runner:
 - Can run in verbose mode (no spinner, immediate output)
 - Uses BubbleTea for terminal UI management
 
+### Verbose Mode
+
+The CLI supports a global `--verbose` / `-v` flag that enables detailed output:
+- Disables spinners in favor of immediate streaming output
+- Git operations (`CommitVerbose`, `PushWithTokenVerbose`) stream stdout/stderr in dimmed format
+- Deployment operations show real-time progress
+- Access verbose state via `cmd.IsVerbose()` from any command
+
+### Debug Mode
+
+Set `CDP_DEBUG=1` environment variable for internal debugging:
+- Shows binary hash on startup
+- Enables trace output in UI functions
+- Shows detailed deployment watcher status
+- Logs API call details and error information
+
+### Deployment Watcher Pattern
+
+For monitoring deployments, use `deploy.WatchDeployment()`:
+
+```go
+success := deploy.WatchDeployment(client, appUUID)
+if success {
+    ui.Success("Deployment complete")
+} else {
+    ui.Error("Deployment failed")
+}
+```
+
+The watcher:
+- Polls Coolify API for deployment status
+- Streams build logs in real-time (dimmed output)
+- Handles various Coolify API response formats
+- Timeouts after ~4 minutes with configurable polling
+- Gracefully handles API errors and missing deployments
+
 ## Common Tasks
 
 ### Adding a New Command
@@ -181,18 +217,23 @@ The task runner:
 ### UI Feedback
 
 Always use `internal/ui` helpers:
-- `ui.Info()` - Informational messages
-- `ui.Success()` - Success messages
-- `ui.Warn()` - Warnings
-- `ui.Error()` - Error messages
-- `ui.Select()` / `ui.Input()` - User prompts
+- `ui.Info()` - Informational messages (cyan dot prefix)
+- `ui.Success()` - Success messages (green dash prefix)
+- `ui.Warning()` - Warnings (yellow exclamation prefix)
+- `ui.Error()` - Error messages (red X prefix)
+- `ui.Dim()` - Dimmed/muted output
+- `ui.Bold()` - Bold text
+- `ui.Select()` / `ui.Input()` - User prompts (GitHub CLI style via survey library)
+- `ui.Confirm()` - Yes/no prompts
+- `ui.Password()` - Secure password input
+- `ui.LogChoice()` - Log auto-selected choices without user interaction
 - `ui.RunTasks()` - Execute async operations with spinner feedback
-- `ui.StepProgress()` - Display step progress (e.g., "Step 1/5")
-- `ui.Divider()` - Visual separator
 - `ui.Spacer()` - Vertical spacing
-- `ui.KeyValue()` - Display key-value pairs
+- `ui.KeyValue()` - Display key-value pairs (dimmed, indented)
 - `ui.List()` - Display bulleted lists
+- `ui.Table()` - Display tabular data
 - `ui.NextSteps()` - Display next steps to user
+- `ui.DimStyle` - Lipgloss style for dimmed log output
 
 ## Important Considerations
 
@@ -258,11 +299,13 @@ The project includes a Makefile for build automation:
 - `make test` - Run tests
 - `make help` - Show available targets
 
+**Build Workflow:** Always run `make build && make install` together when making changes to ensure the CLI is updated both in the bin directory and in the system path.
+
 ## Dependencies
 
 Key external packages:
 - `github.com/spf13/cobra` - CLI framework
-- `github.com/charmbracelet/huh` - Interactive prompts
+- `github.com/AlecAivazis/survey/v2` - Interactive prompts (GitHub CLI style)
 - `github.com/charmbracelet/bubbletea` - Terminal UI framework for task runner
 - `github.com/charmbracelet/lipgloss` - Terminal styling
 - `github.com/charmbracelet/bubbles` - BubbleTea components (spinner)

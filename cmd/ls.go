@@ -44,8 +44,6 @@ func runLs(cmd *cobra.Command, args []string) error {
 
 	client := api.NewClient(globalCfg.CoolifyURL, globalCfg.CoolifyToken)
 
-	ui.Section(fmt.Sprintf("Project: %s", projectCfg.Name))
-
 	appUUID := projectCfg.AppUUID
 	if appUUID == "" {
 		ui.Warning("No application found")
@@ -56,7 +54,19 @@ func runLs(cmd *cobra.Command, args []string) error {
 	}
 
 	// Fetch application info
-	app, err := client.GetApplication(appUUID)
+	var app *api.Application
+	err = ui.RunTasks([]ui.Task{
+		{
+			Name:         "fetch-app",
+			ActiveName:   "Fetching application info...",
+			CompleteName: "Fetched application info",
+			Action: func() error {
+				var err error
+				app, err = client.GetApplication(appUUID)
+				return err
+			},
+		},
+	})
 	if err != nil {
 		ui.Error("Failed to fetch application info")
 		return fmt.Errorf("failed to fetch application: %w", err)

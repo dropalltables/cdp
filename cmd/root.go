@@ -56,9 +56,6 @@ func Execute() error {
 	}
 
 	err := rootCmd.Execute()
-	if err != nil {
-		ui.ErrorWithSuggestion(err, "Run 'cdp --help' for usage")
-	}
 	return err
 }
 
