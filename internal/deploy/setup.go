@@ -415,3 +415,61 @@ func CreateReadmeIfMissing(cfg *config.ProjectConfig) error {
 	content := fmt.Sprintf("# %s\n\n%s application deployed to Coolify.\n", cfg.Name, cfg.Framework)
 	return os.WriteFile(readmePath, []byte(content), 0644)
 }
+
+// CreateGitignoreIfMissing creates a .gitignore file if one doesn't exist
+func CreateGitignoreIfMissing(cfg *config.ProjectConfig) error {
+	gitignorePath := filepath.Join(".", ".gitignore")
+	if _, err := os.Stat(gitignorePath); err == nil {
+		return nil
+	}
+
+	var content string
+	switch cfg.Framework {
+	case "Node.js", "Express", "Next.js", "Nuxt", "Remix", "Astro", "SvelteKit", "Vite", "React", "Vue", "Angular":
+		content = `node_modules/
+dist/
+build/
+.next/
+.nuxt/
+.output/
+.env
+.env.local
+*.log
+`
+	case "Go":
+		content = `bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+.env
+`
+	case "Python", "Django", "Flask", "FastAPI":
+		content = `__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.env
+*.egg-info/
+dist/
+build/
+`
+	case "Hugo":
+		content = `public/
+resources/
+.hugo_build.lock
+`
+	default:
+		content = `.env
+.env.local
+*.log
+`
+	}
+
+	return os.WriteFile(gitignorePath, []byte(content), 0644)
+}

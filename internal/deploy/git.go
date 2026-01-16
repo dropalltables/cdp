@@ -247,8 +247,9 @@ func createGitHubRepoTask(ghClient *git.GitHubClient, projectCfg *config.Project
 		ActiveName:   "Creating GitHub repository...",
 		CompleteName: "Created GitHub repository",
 		Action: func() error {
-			// Create README if it doesn't exist
+			// Create README and .gitignore if they don't exist
 			_ = CreateReadmeIfMissing(projectCfg)
+			_ = CreateGitignoreIfMissing(projectCfg)
 
 			// Extract just the repo name (not the owner/name format)
 			repoName := projectCfg.GitHubRepo

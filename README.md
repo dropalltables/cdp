@@ -32,8 +32,7 @@ cdp
 
 | Command | Description |
 |---------|-------------|
-| `cdp` | Deploy to preview environment |
-| `cdp --prod` | Deploy to production environment |
+| `cdp` | Deploy current project |
 | `cdp login` | Configure Coolify, GitHub, and Docker credentials |
 | `cdp logout` | Clear stored credentials |
 | `cdp whoami` | Show current configuration |
