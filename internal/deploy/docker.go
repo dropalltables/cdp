@@ -67,13 +67,7 @@ func DeployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 }
 
 func buildDockerImage(projectCfg *config.ProjectConfig, tag string, verbose bool) error {
-	framework := &detect.FrameworkInfo{
-		Name:             projectCfg.Framework,
-		InstallCommand:   projectCfg.InstallCommand,
-		BuildCommand:     projectCfg.BuildCommand,
-		StartCommand:     projectCfg.StartCommand,
-		PublishDirectory: projectCfg.PublishDir,
-	}
+	result := projectConfigToResult(projectCfg)
 
 	// Use spinner for build unless verbose mode is enabled
 	var err error
@@ -87,7 +81,7 @@ func buildDockerImage(projectCfg *config.ProjectConfig, tag string, verbose bool
 					Dir:       ".",
 					ImageName: projectCfg.DockerImage,
 					Tag:       tag,
-					Framework: framework,
+					Result:    result,
 					Platform:  projectCfg.Platform,
 					Verbose:   false,
 				})
@@ -101,7 +95,7 @@ func buildDockerImage(projectCfg *config.ProjectConfig, tag string, verbose bool
 			Dir:       ".",
 			ImageName: projectCfg.DockerImage,
 			Tag:       tag,
-			Framework: framework,
+			Result:    result,
 			Platform:  projectCfg.Platform,
 			Verbose:   true,
 		})
@@ -113,6 +107,36 @@ func buildDockerImage(projectCfg *config.ProjectConfig, tag string, verbose bool
 	}
 
 	return nil
+}
+
+func projectConfigToResult(cfg *config.ProjectConfig) *detect.Result {
+	kind := "node"
+	if cfg.PackageManager == "" && cfg.CoolpackPlan == nil {
+		// Detect kind from framework name for non-Node projects
+		switch cfg.Framework {
+		case "Go":
+			kind = "go"
+		case "Python":
+			kind = "python"
+		case "Hugo":
+			kind = "hugo"
+		case "Static Site":
+			kind = "static"
+		}
+	}
+
+	return &detect.Result{
+		Kind:                  kind,
+		Framework:             cfg.Framework,
+		InstallCommand:        cfg.InstallCommand,
+		BuildCommand:          cfg.BuildCommand,
+		StartCommand:          cfg.StartCommand,
+		PublishDirectory:      cfg.PublishDir,
+		Port:                  cfg.Port,
+		PackageManager:        cfg.PackageManager,
+		PackageManagerVersion: cfg.PackageManagerVersion,
+		LanguageVersion:       cfg.NodeVersion,
+	}
 }
 
 func buildDockerDeploymentTasks(

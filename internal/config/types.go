@@ -1,18 +1,17 @@
 package config
 
-// Environment names
+import "encoding/json"
+
 const (
 	EnvPreview    = "preview"
 	EnvProduction = "production"
 )
 
-// Deployment methods
 const (
 	DeployMethodGit    = "git"
 	DeployMethodDocker = "docker"
 )
 
-// Default values
 const (
 	DefaultPort     = "3000"
 	DefaultPlatform = "linux/amd64"
@@ -39,28 +38,35 @@ type DockerRegistry struct {
 // ProjectConfig stores per-project deployment configuration
 type ProjectConfig struct {
 	Name            string `json:"name"`
-	DeployMethod    string `json:"deploy_method"` // "docker" or "git"
+	DeployMethod    string `json:"deploy_method"`
 	ProjectUUID     string `json:"project_uuid"`
 	ServerUUID      string `json:"server_uuid"`
-	EnvironmentUUID string `json:"environment_uuid"` // Single environment for the app
-	AppUUID         string `json:"app_uuid"`         // Single application UUID
+	EnvironmentUUID string `json:"environment_uuid"`
+	AppUUID         string `json:"app_uuid"`
 	Framework       string `json:"framework"`
-	BuildPack       string `json:"build_pack,omitempty"` // nixpacks, static, dockerfile
 	InstallCommand  string `json:"install_command,omitempty"`
 	BuildCommand    string `json:"build_command,omitempty"`
 	StartCommand    string `json:"start_command,omitempty"`
 	PublishDir      string `json:"publish_dir,omitempty"`
 	Port            string `json:"port,omitempty"`
-	Platform        string `json:"platform,omitempty"` // linux/amd64, linux/arm64
-	Branch          string `json:"branch,omitempty"`   // git branch to deploy
+	Platform        string `json:"platform,omitempty"`
+	Branch          string `json:"branch,omitempty"`
 	Domain          string `json:"domain,omitempty"`
 	DockerImage     string `json:"docker_image,omitempty"`
 	GitHubRepo      string `json:"github_repo,omitempty"`
 	GitHubPrivate   bool   `json:"github_private,omitempty"`
 	GitHubAppUUID   string `json:"github_app_uuid,omitempty"`
 
-	// Legacy fields for migration
-	PreviewEnvUUID string            `json:"preview_env_uuid,omitempty"` // Deprecated
-	ProdEnvUUID    string            `json:"prod_env_uuid,omitempty"`    // Deprecated
-	AppUUIDs       map[string]string `json:"app_uuids,omitempty"`        // Deprecated
+	// Node.js specific (from coolpack)
+	PackageManager        string          `json:"package_manager,omitempty"`
+	PackageManagerVersion string          `json:"package_manager_version,omitempty"`
+	NodeVersion           string          `json:"node_version,omitempty"`
+	CoolpackPlan          json.RawMessage `json:"coolpack_plan,omitempty"`
+
+	// Deprecated: legacy fields for migration
+	BuildPack       string            `json:"build_pack,omitempty"`
+	DetectionEngine string            `json:"detection_engine,omitempty"`
+	PreviewEnvUUID  string            `json:"preview_env_uuid,omitempty"`
+	ProdEnvUUID     string            `json:"prod_env_uuid,omitempty"`
+	AppUUIDs        map[string]string `json:"app_uuids,omitempty"`
 }

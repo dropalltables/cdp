@@ -20,7 +20,7 @@ type BuildOptions struct {
 	Dir       string
 	ImageName string
 	Tag       string
-	Framework *detect.FrameworkInfo
+	Result    *detect.Result
 	Platform  string // e.g., "linux/amd64" or "linux/arm64"
 	Verbose   bool   // Show full output instead of hiding it
 }
@@ -32,7 +32,7 @@ func Build(opts *BuildOptions) (err error) {
 	tempDockerfile := false
 
 	if _, statErr := os.Stat(dockerfilePath); os.IsNotExist(statErr) {
-		content := GenerateDockerfile(opts.Framework)
+		content := opts.Result.GenerateDockerfile()
 		tempDockerfilePath := filepath.Join(opts.Dir, "Dockerfile.cdp")
 		if writeErr := os.WriteFile(tempDockerfilePath, []byte(content), 0644); writeErr != nil {
 			return fmt.Errorf("failed to write Dockerfile: %w", writeErr)

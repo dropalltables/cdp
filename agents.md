@@ -42,9 +42,8 @@ Configuration management:
 - `types.go` - Configuration structs
 
 #### `internal/detect/`
-Framework detection:
-- `detector.go` - Detects framework type and build settings
-- `types.go` - Framework information structures
+Framework detection using coolpack (github.com/coollabsio/coolpack):
+- `detect.go` - Detection + Dockerfile generation. Uses coolpack for Node.js (19 frameworks), simple file-based detection for Go/Python/Hugo/static
 
 #### `internal/deploy/`
 Deployment orchestration:
@@ -55,9 +54,8 @@ Deployment orchestration:
 
 #### `internal/docker/`
 Docker operations:
-- `build.go` - Docker image building with framework-specific Dockerfiles
+- `build.go` - Docker image building (calls `Result.GenerateDockerfile()`)
 - `push.go` - Push images to registry
-- `dockerfile.go` - Generate Dockerfiles dynamically
 
 #### `internal/git/`
 Git operations:
@@ -204,9 +202,13 @@ The watcher:
 
 ### Adding Framework Detection
 
-1. Update `internal/detect/detector.go`
+**For Node.js frameworks:** Handled automatically by coolpack (github.com/coollabsio/coolpack). Coolpack supports 19 frameworks with AST-based config parsing for SSR vs Static detection.
+
+**For non-Node.js languages (Go, Python, Hugo, etc.):**
+1. Update `internal/detect/detect.go`
 2. Add detection logic based on file presence/patterns
-3. Return `FrameworkInfo` with build commands
+3. Add Dockerfile template as a const
+4. Update `Result.GenerateDockerfile()` switch statement
 
 ### Modifying API Calls
 

@@ -6,7 +6,6 @@ import (
 
 	"github.com/dropalltables/cdp/internal/api"
 	"github.com/dropalltables/cdp/internal/config"
-	"github.com/dropalltables/cdp/internal/detect"
 	"github.com/dropalltables/cdp/internal/git"
 	"github.com/dropalltables/cdp/internal/ui"
 )
@@ -346,10 +345,7 @@ func createGitAppTask(client *api.Client, projectCfg *config.ProjectConfig, user
 		ActiveName:   "Creating Coolify application...",
 		CompleteName: "Created Coolify application",
 		Action: func() error {
-			buildPack := projectCfg.BuildPack
-			if buildPack == "" {
-				buildPack = detect.BuildPackNixpacks
-			}
+			buildPack := "nixpacks"
 
 			port := projectCfg.Port
 			if port == "" {
@@ -374,8 +370,8 @@ func createGitAppTask(client *api.Client, projectCfg *config.ProjectConfig, user
 			}
 			fullRepoName := fmt.Sprintf("%s/%s", username, repoName)
 
-			// Use Coolify's static site feature for static builds
-			isStatic := buildPack == detect.BuildPackStatic
+			// Static sites have publish directory set
+			isStatic := projectCfg.PublishDir != ""
 
 			// Enable health check for static sites
 			healthCheckEnabled := isStatic

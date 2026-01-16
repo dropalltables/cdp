@@ -5,6 +5,7 @@ go 1.25.5
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/coollabsio/coolpack v0.0.2
 	github.com/spf13/cobra v1.10.2
 )
 
@@ -24,6 +25,7 @@ require (
 	github.com/mgutz/ansi v0.0.0-20170206155736-9520e82c474b // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect

@@ -1,9 +1,5 @@
-- move detection to https://github.com/coollabsio/coolpack
-
 - **BIG THING:** allow preview deployments with git setup  
   - For Docker this cannot work, but git deploys should set up Coolify to work with GitHub PRs on the deploy repo
-- Get `ls` command to work (`cdp ls`) and list deployments
-- Test `link` command / get working if broken
 
 long term:
 - add cloudflare api functionality, basically this should auto add a dns record to cf with the custom domain I chose, and then point it toward my server, depending on if i want it proxied or unproxied

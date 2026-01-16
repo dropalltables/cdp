@@ -16,61 +16,52 @@ import (
 
 // FirstTimeSetup walks the user through initial project configuration.
 func FirstTimeSetup(client *api.Client, globalCfg *config.GlobalConfig) (*config.ProjectConfig, error) {
-	// Detect framework
-	framework, err := detectFramework()
+	result, err := detectFramework()
 	if err != nil {
 		return nil, err
 	}
 
-	// Choose deployment method
 	deployMethod, err := chooseDeployMethod(globalCfg)
 	if err != nil {
 		return nil, err
 	}
 
-	// Select server
 	serverUUID, err := selectServer(client)
 	if err != nil {
 		return nil, err
 	}
 
-	// Select or create project
 	projectName, projectUUID, environmentUUID, err := selectOrCreateProject(client)
 	if err != nil {
 		return nil, err
 	}
 
-	// Advanced options
-	advancedCfg, err := configureAdvancedOptions(deployMethod, framework)
+	advancedCfg, err := configureAdvancedOptions(deployMethod, result)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build project config
 	projectCfg := buildProjectConfig(
 		projectName,
 		projectUUID,
 		environmentUUID,
 		serverUUID,
 		deployMethod,
-		framework,
+		result,
 		advancedCfg,
 		globalCfg,
 	)
 
-	// Save project config
-	err = config.SaveProject(projectCfg)
-	if err != nil {
+	if err := config.SaveProject(projectCfg); err != nil {
 		return nil, fmt.Errorf("failed to save configuration: %w", err)
 	}
 
 	ui.Success("Project configured successfully")
-
 	return projectCfg, nil
 }
 
-func detectFramework() (*detect.FrameworkInfo, error) {
-	var framework *detect.FrameworkInfo
+func detectFramework() (*detect.Result, error) {
+	var result *detect.Result
 
 	err := ui.RunTasks([]ui.Task{
 		{
@@ -79,7 +70,7 @@ func detectFramework() (*detect.FrameworkInfo, error) {
 			CompleteName: "Analyzed project",
 			Action: func() error {
 				var err error
-				framework, err = detect.Detect(".")
+				result, err = detect.Detect(".")
 				return err
 			},
 		},
@@ -88,20 +79,37 @@ func detectFramework() (*detect.FrameworkInfo, error) {
 		return nil, fmt.Errorf("failed to detect framework: %w", err)
 	}
 
-	ui.LogChoice("Framework", framework.Name)
+	ui.LogChoice("Framework", result.Framework)
 
-	// Display build settings inline
-	if framework.InstallCommand != "" {
-		ui.KeyValue("Install", framework.InstallCommand)
+	// Show coolpack detection info for Node.js projects
+	if result.Kind == "node" && result.PackageManager != "" {
+		pmInfo := result.PackageManager
+		if result.PackageManagerVersion != "" {
+			pmInfo += " " + result.PackageManagerVersion
+		}
+		ui.KeyValue("Package manager", pmInfo)
+
+		if result.LanguageVersion != "" {
+			ui.KeyValue("Node version", result.LanguageVersion)
+		}
+		if result.IsStatic {
+			ui.KeyValue("Output type", "Static")
+		} else {
+			ui.KeyValue("Output type", "Server")
+		}
 	}
-	if framework.BuildCommand != "" {
-		ui.KeyValue("Build", framework.BuildCommand)
+
+	if result.InstallCommand != "" {
+		ui.KeyValue("Install", result.InstallCommand)
 	}
-	if framework.StartCommand != "" {
-		ui.KeyValue("Start", framework.StartCommand)
+	if result.BuildCommand != "" {
+		ui.KeyValue("Build", result.BuildCommand)
 	}
-	if framework.PublishDirectory != "" {
-		ui.KeyValue("Output", framework.PublishDirectory)
+	if result.StartCommand != "" {
+		ui.KeyValue("Start", result.StartCommand)
+	}
+	if result.PublishDirectory != "" {
+		ui.KeyValue("Output", result.PublishDirectory)
 	}
 
 	ui.Spacer()
@@ -112,57 +120,54 @@ func detectFramework() (*detect.FrameworkInfo, error) {
 	}
 
 	if editSettings {
-		framework, err = editBuildSettings(framework)
+		result, err = editBuildSettings(result)
 		if err != nil {
 			return nil, err
 		}
 
-		// Show updated configuration
 		ui.Spacer()
-		if framework.InstallCommand != "" {
-			ui.KeyValue("Install", ui.CodeStyle.Render(framework.InstallCommand))
+		if result.InstallCommand != "" {
+			ui.KeyValue("Install", ui.CodeStyle.Render(result.InstallCommand))
 		}
-		if framework.BuildCommand != "" {
-			ui.KeyValue("Build", ui.CodeStyle.Render(framework.BuildCommand))
+		if result.BuildCommand != "" {
+			ui.KeyValue("Build", ui.CodeStyle.Render(result.BuildCommand))
 		}
-		if framework.StartCommand != "" {
-			ui.KeyValue("Start", ui.CodeStyle.Render(framework.StartCommand))
+		if result.StartCommand != "" {
+			ui.KeyValue("Start", ui.CodeStyle.Render(result.StartCommand))
 		}
-		if framework.PublishDirectory != "" {
-			ui.KeyValue("Publish dir", framework.PublishDirectory)
+		if result.PublishDirectory != "" {
+			ui.KeyValue("Publish dir", result.PublishDirectory)
 		}
 	}
 
-	return framework, nil
+	return result, nil
 }
 
-func editBuildSettings(f *detect.FrameworkInfo) (*detect.FrameworkInfo, error) {
-	installCmd, err := ui.InputWithDefault("Install command", f.InstallCommand)
+func editBuildSettings(r *detect.Result) (*detect.Result, error) {
+	var err error
+
+	r.InstallCommand, err = ui.InputWithDefault("Install command", r.InstallCommand)
 	if err != nil {
 		return nil, err
 	}
-	f.InstallCommand = installCmd
 
-	buildCmd, err := ui.InputWithDefault("Build command", f.BuildCommand)
+	r.BuildCommand, err = ui.InputWithDefault("Build command", r.BuildCommand)
 	if err != nil {
 		return nil, err
 	}
-	f.BuildCommand = buildCmd
 
-	startCmd, err := ui.InputWithDefault("Start command", f.StartCommand)
+	r.StartCommand, err = ui.InputWithDefault("Start command", r.StartCommand)
 	if err != nil {
 		return nil, err
 	}
-	f.StartCommand = startCmd
 
-	return f, nil
+	return r, nil
 }
 
 func chooseDeployMethod(globalCfg *config.GlobalConfig) (string, error) {
-	options := []string{}
+	var options []string
 	optionMap := map[string]string{}
 
-	// Check what's available
 	hasDocker := docker.IsDockerAvailable() && globalCfg.DockerRegistry != nil
 	hasGitHub := globalCfg.GitHubToken != ""
 
@@ -235,12 +240,7 @@ func selectServer(client *api.Client) (string, error) {
 		serverOptions[s.UUID] = displayName
 	}
 
-	serverUUID, err := ui.SelectWithKeys("Server", serverOptions)
-	if err != nil {
-		return "", err
-	}
-
-	return serverUUID, nil
+	return ui.SelectWithKeys("Server", serverOptions)
 }
 
 func selectOrCreateProject(client *api.Client) (projectName, projectUUID, environmentUUID string, err error) {
@@ -261,8 +261,7 @@ func selectOrCreateProject(client *api.Client) (projectName, projectUUID, enviro
 		return "", "", "", fmt.Errorf("failed to list projects: %w", err)
 	}
 
-	projectOptions := make([]string, 0, len(projects)+1)
-	projectOptions = append(projectOptions, "+ Create new project")
+	projectOptions := []string{"+ Create new project"}
 	projectMap := make(map[string]api.Project)
 	for _, p := range projects {
 		projectOptions = append(projectOptions, p.Name)
@@ -275,18 +274,14 @@ func selectOrCreateProject(client *api.Client) (projectName, projectUUID, enviro
 	}
 
 	if selectedProject == "+ Create new project" {
-		workingDirName := getWorkingDirName()
-		projectName, err = ui.InputWithDefault("Project name", workingDirName)
+		projectName, err = ui.InputWithDefault("Project name", getWorkingDirName())
 		if err != nil {
 			return "", "", "", err
 		}
-		projectUUID = ""
-		environmentUUID = ""
 	} else {
 		project := projectMap[selectedProject]
 		projectName = selectedProject
 		projectUUID = project.UUID
-		environmentUUID = ""
 	}
 
 	return projectName, projectUUID, environmentUUID, nil
@@ -299,17 +294,16 @@ type advancedConfig struct {
 	Domain   string
 }
 
-func configureAdvancedOptions(deployMethod string, framework *detect.FrameworkInfo) (*advancedConfig, error) {
+func configureAdvancedOptions(deployMethod string, result *detect.Result) (*advancedConfig, error) {
 	configureAdvanced, err := ui.Confirm("Configure advanced options")
 	if err != nil {
 		return nil, err
 	}
 
 	cfg := &advancedConfig{
-		Port:     framework.Port,
+		Port:     result.Port,
 		Platform: config.DefaultPlatform,
 		Branch:   config.DefaultBranch,
-		Domain:   "",
 	}
 
 	if cfg.Port == "" {
@@ -359,7 +353,7 @@ func configureAdvancedOptions(deployMethod string, framework *detect.FrameworkIn
 
 func buildProjectConfig(
 	projectName, projectUUID, environmentUUID, serverUUID, deployMethod string,
-	framework *detect.FrameworkInfo,
+	result *detect.Result,
 	advancedCfg *advancedConfig,
 	globalCfg *config.GlobalConfig,
 ) *config.ProjectConfig {
@@ -369,20 +363,25 @@ func buildProjectConfig(
 		ProjectUUID:     projectUUID,
 		ServerUUID:      serverUUID,
 		EnvironmentUUID: environmentUUID,
-		AppUUID:         "", // Will be created on first deployment
-		Framework:       framework.Name,
-		BuildPack:       framework.BuildPack,
-		InstallCommand:  framework.InstallCommand,
-		BuildCommand:    framework.BuildCommand,
-		StartCommand:    framework.StartCommand,
-		PublishDir:      framework.PublishDirectory,
+		Framework:       result.Framework,
+		InstallCommand:  result.InstallCommand,
+		BuildCommand:    result.BuildCommand,
+		StartCommand:    result.StartCommand,
+		PublishDir:      result.PublishDirectory,
 		Port:            advancedCfg.Port,
 		Platform:        advancedCfg.Platform,
 		Branch:          advancedCfg.Branch,
 		Domain:          advancedCfg.Domain,
 	}
 
-	// Set up based on deploy method
+	// Store Node.js specific info
+	if result.Kind == "node" {
+		projectCfg.PackageManager = result.PackageManager
+		projectCfg.PackageManagerVersion = result.PackageManagerVersion
+		projectCfg.NodeVersion = result.LanguageVersion
+		projectCfg.CoolpackPlan = result.MarshalPlan()
+	}
+
 	if deployMethod == config.DeployMethodDocker {
 		if globalCfg.DockerRegistry != nil {
 			projectCfg.DockerImage = docker.GetImageFullName(
@@ -410,19 +409,9 @@ func getWorkingDirName() string {
 func CreateReadmeIfMissing(cfg *config.ProjectConfig) error {
 	readmePath := filepath.Join(".", "README.md")
 	if _, err := os.Stat(readmePath); err == nil {
-		return nil // README already exists
+		return nil
 	}
 
-	content := fmt.Sprintf(`# %s
-
-## Framework
-
-%s
-
-## Deployment
-
-This project is deployed to Coolify.
-`, cfg.Name, cfg.Framework)
-
+	content := fmt.Sprintf("# %s\n\n%s application deployed to Coolify.\n", cfg.Name, cfg.Framework)
 	return os.WriteFile(readmePath, []byte(content), 0644)
 }
