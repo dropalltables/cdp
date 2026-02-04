@@ -11,7 +11,7 @@ import (
 )
 
 // DeployGit handles Git-based deployments
-func DeployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *config.ProjectConfig, prNumber int, verbose bool) error {
+func DeployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *config.ProjectConfig, prNumber int, verbose bool, force bool) error {
 	ghClient := git.NewGitHubClient(globalCfg.GitHubToken)
 
 	// Get GitHub user
@@ -37,7 +37,7 @@ func DeployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 	}
 
 	// Execute deployment tasks
-	tasks := buildGitDeploymentTasks(client, ghClient, globalCfg, projectCfg, user.Login, needsRepoCreation, verbose)
+	tasks := buildGitDeploymentTasks(client, ghClient, globalCfg, projectCfg, user.Login, needsRepoCreation, verbose, force)
 
 	if err := ui.RunTasksVerbose(tasks, verbose); err != nil {
 		ui.Error("Deployment setup failed")
@@ -47,9 +47,12 @@ func DeployGit(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *c
 	// Watch deployment
 	ui.Info("Watching deployment...")
 
-	success := WatchDeployment(client, projectCfg.AppUUID)
+	result := WatchDeploymentWithCancel(client, projectCfg.AppUUID)
 
-	if !success {
+	switch result {
+	case WatchCancelled:
+		return nil
+	case WatchFailed:
 		ui.Error("Deployment failed")
 		ui.Spacer()
 		ui.NextSteps([]string{
@@ -207,6 +210,7 @@ func buildGitDeploymentTasks(
 	username string,
 	needsRepoCreation bool,
 	verbose bool,
+	force bool,
 ) []ui.Task {
 	tasks := []ui.Task{}
 
@@ -236,7 +240,7 @@ func buildGitDeploymentTasks(
 
 	// Push code to GitHub and trigger deployment
 	// Webhook triggers on push, but if no changes we trigger manually
-	tasks = append(tasks, pushAndDeployTask(client, ghClient, globalCfg, projectCfg, username, verbose))
+	tasks = append(tasks, pushAndDeployTask(client, ghClient, globalCfg, projectCfg, username, verbose, force))
 
 	return tasks
 }
@@ -286,7 +290,7 @@ func initGitTask() ui.Task {
 	}
 }
 
-func pushAndDeployTask(client *api.Client, ghClient *git.GitHubClient, globalCfg *config.GlobalConfig, projectCfg *config.ProjectConfig, username string, verbose bool) ui.Task {
+func pushAndDeployTask(client *api.Client, ghClient *git.GitHubClient, globalCfg *config.GlobalConfig, projectCfg *config.ProjectConfig, username string, verbose bool, force bool) ui.Task {
 	return ui.Task{
 		Name:         "push-deploy",
 		ActiveName:   "Pushing code to GitHub...",
@@ -327,9 +331,9 @@ func pushAndDeployTask(client *api.Client, ghClient *git.GitHubClient, globalCfg
 				return err
 			}
 
-			// If no changes were committed, webhook won't fire - trigger manually
-			if !hadChanges {
-				_, err = client.Deploy(projectCfg.AppUUID, false, 0)
+			// If no changes were committed or force rebuild requested, trigger manually
+			if !hadChanges || force {
+				_, err = client.Deploy(projectCfg.AppUUID, force, 0)
 				if err != nil {
 					return fmt.Errorf("failed to trigger deployment: %w", err)
 				}

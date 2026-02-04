@@ -8,6 +8,7 @@ import (
 
 	"github.com/dropalltables/cdp/internal/api"
 	"github.com/dropalltables/cdp/internal/ui"
+	"golang.org/x/term"
 )
 
 const (
@@ -18,9 +19,25 @@ const (
 	maxConsecutiveErrors = 5  // max API errors before giving up
 )
 
+// WatchResult represents the outcome of watching a deployment
+type WatchResult int
+
+const (
+	WatchSuccess WatchResult = iota
+	WatchFailed
+	WatchCancelled
+)
+
 // WatchDeployment polls the deployment status and displays build logs.
 // Returns true if deployment succeeded, false if it failed.
 func WatchDeployment(client *api.Client, appUUID string) bool {
+	result := WatchDeploymentWithCancel(client, appUUID)
+	return result == WatchSuccess
+}
+
+// WatchDeploymentWithCancel polls the deployment status and allows cancellation with 'q'.
+// Returns WatchSuccess, WatchFailed, or WatchCancelled.
+func WatchDeploymentWithCancel(client *api.Client, appUUID string) WatchResult {
 	debug := os.Getenv("CDP_DEBUG") != ""
 	if debug {
 		fmt.Printf("[DEBUG] Watching app UUID: %s\n", appUUID)
@@ -32,6 +49,20 @@ func WatchDeployment(client *api.Client, appUUID string) bool {
 		debug:             debug,
 		consecutiveErrors: 0,
 		lastLogLen:        0,
+		cancelChan:        make(chan struct{}),
+	}
+
+	// Set up raw mode in main goroutine so restore is guaranteed
+	fd := int(os.Stdin.Fd())
+	if term.IsTerminal(fd) {
+		oldState, err := term.MakeRaw(fd)
+		if err == nil {
+			defer term.Restore(fd, oldState)
+			// Start keyboard listener for 'q' to cancel (no terminal management inside)
+			go watcher.listenForCancel(fd)
+			ui.Dim("Press 'q' to cancel deployment\r")
+			fmt.Print("\r\n")
+		}
 	}
 
 	return watcher.watch()
@@ -45,13 +76,55 @@ type deploymentWatcher struct {
 	lastLogLen         int
 	lastDeploymentUUID string
 	seenDeployment     bool
+	cancelChan         chan struct{}
+	cancelled          bool
 }
 
-func (w *deploymentWatcher) watch() bool {
+func (w *deploymentWatcher) listenForCancel(fd int) {
+	buf := make([]byte, 1)
+	for {
+		select {
+		case <-w.cancelChan:
+			return
+		default:
+			// Use short timeout for responsive cancellation
+			os.Stdin.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			n, _ := os.Stdin.Read(buf)
+			if n > 0 && (buf[0] == 'q' || buf[0] == 'Q') {
+				w.cancelled = true
+				select {
+				case <-w.cancelChan:
+				default:
+					close(w.cancelChan)
+				}
+				return
+			}
+		}
+	}
+}
+
+func (w *deploymentWatcher) watch() WatchResult {
+	defer func() {
+		// Signal cancel listener to stop
+		select {
+		case <-w.cancelChan:
+		default:
+			close(w.cancelChan)
+		}
+	}()
+
 	for attempt := 0; attempt < maxPollAttempts; attempt++ {
+		// Check if user pressed 'q'
+		if w.cancelled {
+			return w.handleCancellation()
+		}
+
 		status, done := w.checkDeploymentStatus(attempt)
 		if done {
-			return status == deploymentSuccess
+			if status == deploymentSuccess {
+				return WatchSuccess
+			}
+			return WatchFailed
 		}
 		
 		// Print progress every 30 attempts (1 minute)
@@ -66,7 +139,29 @@ func (w *deploymentWatcher) watch() bool {
 	if w.debug {
 		fmt.Printf("[DEBUG] Reached max poll attempts (%d), making final check\n", maxPollAttempts)
 	}
-	return w.checkFinalStatus()
+	if w.checkFinalStatus() {
+		return WatchSuccess
+	}
+	return WatchFailed
+}
+
+func (w *deploymentWatcher) handleCancellation() WatchResult {
+	fmt.Print("\r\n")
+	ui.Warning("Cancelling deployment...")
+
+	if w.lastDeploymentUUID != "" {
+		err := w.client.CancelDeployment(w.lastDeploymentUUID)
+		if err != nil {
+			if w.debug {
+				fmt.Printf("[DEBUG] Cancel error: %v\n", err)
+			}
+			ui.Error("Failed to cancel deployment")
+		} else {
+			ui.Success("Deployment cancelled")
+		}
+	}
+
+	return WatchCancelled
 }
 
 type deploymentStatus int
@@ -200,7 +295,8 @@ func (w *deploymentWatcher) printNewLogs(rawLogs string) {
 		lines := strings.Split(newContent, "\n")
 		for _, line := range lines {
 			if line != "" {
-				fmt.Println(ui.DimStyle.Render("  " + line))
+				// Use \r\n for raw terminal mode compatibility
+				fmt.Print(ui.DimStyle.Render("  "+line) + "\r\n")
 			}
 		}
 		w.lastLogLen = len(parsedLogs)

@@ -145,6 +145,12 @@ type GitHubApp struct {
 	IsSystemWide   bool   `json:"is_system_wide"`
 }
 
+// LifecycleResponse is the response from start/stop/restart operations
+type LifecycleResponse struct {
+	Message        string `json:"message"`
+	DeploymentUUID string `json:"deployment_uuid,omitempty"`
+}
+
 // CreatePrivateGitHubAppRequest is the request body for creating a private GitHub app
 type CreatePrivateGitHubAppRequest struct {
 	ProjectUUID        string `json:"project_uuid"`

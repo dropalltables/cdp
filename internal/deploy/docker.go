@@ -12,7 +12,7 @@ import (
 )
 
 // DeployDocker handles Docker-based deployments
-func DeployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *config.ProjectConfig, prNumber int, verbose bool) error {
+func DeployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg *config.ProjectConfig, prNumber int, verbose bool, force bool) error {
 	// Generate tag based on PR number (0 = production, >0 = preview)
 	deployType := "production"
 	if prNumber > 0 {
@@ -33,7 +33,7 @@ func DeployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 
 	ui.Info("Deploying to Coolify")
 
-	tasks := buildDockerDeploymentTasks(client, globalCfg, projectCfg, tag, needsProjectCreation, verbose)
+	tasks := buildDockerDeploymentTasks(client, globalCfg, projectCfg, tag, needsProjectCreation, verbose, force)
 
 	if err := ui.RunTasksVerbose(tasks, verbose); err != nil {
 		ui.Error("Deployment setup failed")
@@ -43,9 +43,12 @@ func DeployDocker(client *api.Client, globalCfg *config.GlobalConfig, projectCfg
 	// Watch deployment
 	ui.Info("Watching deployment...")
 
-	success := WatchDeployment(client, projectCfg.AppUUID)
+	result := WatchDeploymentWithCancel(client, projectCfg.AppUUID)
 
-	if !success {
+	switch result {
+	case WatchCancelled:
+		return nil
+	case WatchFailed:
 		ui.Error("Deployment failed")
 		ui.Spacer()
 		ui.NextSteps([]string{
@@ -146,6 +149,7 @@ func buildDockerDeploymentTasks(
 	tag string,
 	needsProjectCreation bool,
 	verbose bool,
+	force bool,
 ) []ui.Task {
 	tasks := []ui.Task{}
 
@@ -166,7 +170,7 @@ func buildDockerDeploymentTasks(
 	}
 
 	// Trigger deployment
-	tasks = append(tasks, triggerDeploymentTask(client, projectCfg, tag))
+	tasks = append(tasks, triggerDeploymentTask(client, projectCfg, tag, force))
 
 	return tasks
 }
@@ -306,7 +310,7 @@ func createDockerAppTask(client *api.Client, projectCfg *config.ProjectConfig, t
 	}
 }
 
-func triggerDeploymentTask(client *api.Client, projectCfg *config.ProjectConfig, tag string) ui.Task {
+func triggerDeploymentTask(client *api.Client, projectCfg *config.ProjectConfig, tag string, force bool) ui.Task {
 	return ui.Task{
 		Name:         "trigger-deploy",
 		ActiveName:   "Triggering deployment...",
@@ -318,7 +322,7 @@ func triggerDeploymentTask(client *api.Client, projectCfg *config.ProjectConfig,
 				return fmt.Errorf("failed to update application image tag: %w", err)
 			}
 
-			_, err := client.Deploy(projectCfg.AppUUID, false, 0)
+			_, err := client.Deploy(projectCfg.AppUUID, force, 0)
 			if err != nil {
 				return fmt.Errorf("failed to trigger deployment: %w", err)
 			}

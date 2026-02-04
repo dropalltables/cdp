@@ -12,6 +12,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	deployForce bool
+	deployYes   bool
+)
+
 var deployCmd = &cobra.Command{
 	Use:   "deploy",
 	Short: "Deploy the current directory to Coolify",
@@ -25,6 +30,8 @@ Preview deployments are created automatically by Coolify from GitHub Pull Reques
 }
 
 func init() {
+	deployCmd.Flags().BoolVarP(&deployForce, "force", "f", false, "Force rebuild")
+	deployCmd.Flags().BoolVarP(&deployYes, "yes", "y", false, "Skip confirmation prompt")
 	rootCmd.AddCommand(deployCmd)
 }
 
@@ -65,8 +72,8 @@ func runDeploy() error {
 	prNumber := 0
 	deploymentType := "production"
 
-	// Confirm deployments (except first deploy)
-	if !isFirstDeploy {
+	// Confirm deployments (except first deploy or if --yes flag)
+	if !isFirstDeploy && !deployYes {
 		confirmed, err := ui.Confirm("Deploy to production?")
 		if err != nil {
 			return err
@@ -86,7 +93,7 @@ func runDeploy() error {
 
 	// Deploy based on method
 	if projectCfg.DeployMethod == config.DeployMethodDocker {
-		return deploy.DeployDocker(client, globalCfg, projectCfg, prNumber, verbose)
+		return deploy.DeployDocker(client, globalCfg, projectCfg, prNumber, verbose, deployForce)
 	}
-	return deploy.DeployGit(client, globalCfg, projectCfg, prNumber, verbose)
+	return deploy.DeployGit(client, globalCfg, projectCfg, prNumber, verbose, deployForce)
 }

@@ -77,3 +77,28 @@ func (c *Client) CreatePrivateGitHubApp(req *CreatePrivateGitHubAppRequest) (*Cr
 	err := c.Post("/applications/private-github-app", req, &resp)
 	return &resp, err
 }
+
+// StartApplication starts an application (triggers a deployment)
+func (c *Client) StartApplication(uuid string, force bool) (*LifecycleResponse, error) {
+	var resp LifecycleResponse
+	path := fmt.Sprintf("/applications/%s/start", uuid)
+	if force {
+		path += "?force=true"
+	}
+	err := c.Get(path, &resp)
+	return &resp, err
+}
+
+// StopApplication stops an application
+func (c *Client) StopApplication(uuid string) (*LifecycleResponse, error) {
+	var resp LifecycleResponse
+	err := c.Get(fmt.Sprintf("/applications/%s/stop", uuid), &resp)
+	return &resp, err
+}
+
+// RestartApplication restarts an application
+func (c *Client) RestartApplication(uuid string) (*LifecycleResponse, error) {
+	var resp LifecycleResponse
+	err := c.Get(fmt.Sprintf("/applications/%s/restart", uuid), &resp)
+	return &resp, err
+}

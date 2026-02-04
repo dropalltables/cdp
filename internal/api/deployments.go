@@ -246,6 +246,25 @@ func (c *Client) GetBuildLogs(deploymentUUID string) (string, error) {
 	return deployment.Logs, nil
 }
 
+// CancelDeployment cancels an in-progress deployment
+func (c *Client) CancelDeployment(deploymentUUID string) error {
+	return c.Post(fmt.Sprintf("/deployments/%s/cancel", deploymentUUID), nil, nil)
+}
+
+// GetApplicationLogs returns runtime logs for an application
+func (c *Client) GetApplicationLogs(appUUID string) ([]ApplicationLog, error) {
+	var logs []ApplicationLog
+	err := c.Get(fmt.Sprintf("/applications/%s/logs", appUUID), &logs)
+	return logs, err
+}
+
+// ApplicationLog represents a runtime log entry
+type ApplicationLog struct {
+	Output    string `json:"output"`
+	Timestamp string `json:"timestamp"`
+	Container string `json:"container"`
+}
+
 // HealthCheck validates the API connection
 func (c *Client) HealthCheck() error {
 	var resp HealthCheckResponse

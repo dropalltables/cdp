@@ -193,9 +193,12 @@ func runRollback(cmd *cobra.Command, args []string) error {
 	// Watch deployment
 	ui.Info("Watching deployment...")
 
-	success := deploy.WatchDeployment(client, appUUID)
+	result := deploy.WatchDeploymentWithCancel(client, appUUID)
 
-	if !success {
+	switch result {
+	case deploy.WatchCancelled:
+		return nil
+	case deploy.WatchFailed:
 		ui.Error("Rollback failed")
 		return fmt.Errorf("rollback failed")
 	}

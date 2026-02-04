@@ -12,7 +12,7 @@ import (
 
 var lsCmd = &cobra.Command{
 	Use:     "ls",
-	Aliases: []string{"list", "status"},
+	Aliases: []string{"list"},
 	Short:   "List project deployments",
 	Long:    "Display all environments and their deployment status for this project.",
 	RunE:    runLs,
